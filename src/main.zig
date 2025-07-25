@@ -24,10 +24,6 @@ const TokenizerError = error{
     InvalidToken,
 };
 
-fn todo(message: []const u8) noreturn {
-    @panic(message);
-}
-
 const Tokenizer = struct {
     source: []const u8,
     idx: usize,
@@ -171,4 +167,191 @@ pub fn main() !void {
         std.debug.print("Token: {any}\n", .{token});
         token.deinit(allocator);
     }
+}
+
+fn expectLparen(allocator: std.mem.Allocator, token: ?Token) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |tok| {
+        return switch (tok) {
+            .lparen => {},
+            else => error.WrongToken,
+        };
+    } else {
+        return error.NoToken;
+    }
+}
+
+fn expectRparen(allocator: std.mem.Allocator, token: ?Token) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |tok| {
+        return switch (tok) {
+            .rparen => {},
+            else => error.WrongToken,
+        };
+    } else {
+        return error.NoToken;
+    }
+}
+
+fn expectChar(allocator: std.mem.Allocator, token: ?Token, expected_char: u8) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |tok| {
+        return switch (tok) {
+            .char => |char| {
+                if (char != expected_char) {
+                    return error.WrongChar;
+                }
+            },
+            else => error.WrongToken,
+        };
+    } else {
+        return error.NoToken;
+    }
+}
+
+fn expectInt(allocator: std.mem.Allocator, token: ?Token, expected_int: i64) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |tok| {
+        return switch (tok) {
+            .int => |int| {
+                if (int != expected_int) {
+                    return error.WrongInt;
+                }
+            },
+            else => error.WrongToken,
+        };
+    } else {
+        return error.NoToken;
+    }
+}
+
+fn expectIdent(allocator: std.mem.Allocator, token: ?Token, expected_ident: []const u8) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |tok| {
+        return switch (tok) {
+            .ident => |ident| {
+                if (!std.mem.eql(u8, ident, expected_ident)) {
+                    return error.WrongIdent;
+                }
+            },
+            else => error.WrongToken,
+        };
+    } else {
+        return error.NoToken;
+    }
+}
+
+fn expectString(allocator: std.mem.Allocator, token: ?Token, expected_string: []const u8) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |tok| {
+        return switch (tok) {
+            .string => |string| {
+                if (!std.mem.eql(u8, string, expected_string)) {
+                    return error.WrongString;
+                }
+            },
+            else => error.WrongToken,
+        };
+    } else {
+        return error.NoToken;
+    }
+}
+
+fn expectNoToken(allocator: std.mem.Allocator, token: ?Token) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |_| {
+        return error.HasToken;
+    }
+}
+
+test "empty source" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\
+    ;
+    var tokenizer = Tokenizer.init(source);
+
+    try expectNoToken(allocator, try tokenizer.next(allocator));
+    // Still empty
+    try expectNoToken(allocator, try tokenizer.next(allocator));
+}
+
+test "parentheses" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\(())()()
+    ;
+    var tokenizer = Tokenizer.init(source);
+
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectNoToken(allocator, try tokenizer.next(allocator));
+}
+
+test "idents" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\(A (hello world) )
+    ;
+    var tokenizer = Tokenizer.init(source);
+
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectIdent(allocator, try tokenizer.next(allocator), "A");
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectIdent(allocator, try tokenizer.next(allocator), "hello");
+    try expectIdent(allocator, try tokenizer.next(allocator), "world");
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectNoToken(allocator, try tokenizer.next(allocator));
+}
+
+test "strings" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\("A" ("hello" "world") )
+    ;
+    var tokenizer = Tokenizer.init(source);
+
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectString(allocator, try tokenizer.next(allocator), "A");
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectString(allocator, try tokenizer.next(allocator), "hello");
+    try expectString(allocator, try tokenizer.next(allocator), "world");
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectNoToken(allocator, try tokenizer.next(allocator));
 }
