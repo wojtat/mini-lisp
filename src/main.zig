@@ -70,8 +70,19 @@ const Tokenizer = struct {
         const token: Token = switch (self.peekChar() orelse return null) {
             '(' => .{ .lparen = {} },
             ')' => .{ .rparen = {} },
-            '\'' => {
-                todo("Char");
+            '\'' => blk: {
+                // TODO: Escaping
+                self.idx += 1;
+                const char = self.source[self.idx];
+                self.idx += 1;
+                if (self.peekChar()) |c| {
+                    if (c != '\'') {
+                        return error.UnmatchedSingleQuote;
+                    }
+                } else {
+                    return error.UnmatchedSingleQuote;
+                }
+                break :blk .{ .char = char };
             },
             '"' => blk: {
                 // TODO: Escaping
@@ -147,7 +158,7 @@ pub fn main() !void {
         \\    ((int argc) ((* (* char)) argv))
         \\    int
         \\    (
-        \\        (print "Hello, world!")
+        \\        (print (append "Hello, world" '!'))
         \\        (return (factorial 10))
         \\    )
         \\)
