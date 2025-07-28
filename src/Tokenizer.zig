@@ -94,8 +94,7 @@ pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error 
                 // We reached the end of the source, but no end of string was found
                 return error.UnmatchedDoubleQuote;
             }
-            const string = try allocator.alloc(u8, size);
-            @memcpy(string, self.source[self.idx .. self.idx + size]);
+            const string = try allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
             advance_by = size + 1;
             break :blk .{ .string = string };
         },
@@ -107,8 +106,7 @@ pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error 
                 }
                 size += 1;
             }
-            const ident = try allocator.alloc(u8, size);
-            @memcpy(ident, self.source[self.idx .. self.idx + size]);
+            const ident = try allocator.dupe(self.source[self.idx .. self.idx + size]);
             advance_by = size;
             break :blk .{ .ident = ident };
         },
