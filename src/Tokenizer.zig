@@ -60,6 +60,50 @@ fn isIdentChar(c: u8) bool {
     };
 }
 
+fn tokenizeChar(self: *Self) Error!u8 {
+    // TODO: Escaping
+    self.idx += 1;
+    const char = self.source[self.idx];
+    self.idx += 1;
+    if (self.peekChar()) |c| {
+        if (c != '\'') {
+            return error.UnmatchedSingleQuote;
+        }
+    } else {
+        return error.UnmatchedSingleQuote;
+    }
+    return char;
+}
+
+fn tokenizeString(self: *Self, allocator: std.mem.Allocator, advance_by: *usize) (std.mem.Allocator.Error || Error)![]u8 {
+    // TODO: Escaping
+    self.idx += 1;
+    var size: usize = 0;
+    for (self.source[self.idx..]) |c| {
+        if (c == '"') {
+            break;
+        }
+        size += 1;
+    } else {
+        // We reached the end of the source, but no end of string was found
+        return error.UnmatchedDoubleQuote;
+    }
+    advance_by.* = size + 1;
+    return allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
+}
+
+fn tokenizeIdent(self: *Self, allocator: std.mem.Allocator, advance_by: *usize) (std.mem.Allocator.Error || Error)![]u8 {
+    var size: usize = 1;
+    for (self.source[self.idx + 1 ..]) |c| {
+        if (!isIdentChar(c)) {
+            break;
+        }
+        size += 1;
+    }
+    advance_by.* = size;
+    return allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
+}
+
 pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error || Error)!?Token {
     self.skipWhitespace();
 
@@ -67,49 +111,9 @@ pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error 
     const token: Token = switch (self.peekChar() orelse return null) {
         '(' => .{ .lparen = {} },
         ')' => .{ .rparen = {} },
-        '\'' => blk: {
-            // TODO: Escaping
-            self.idx += 1;
-            const char = self.source[self.idx];
-            self.idx += 1;
-            if (self.peekChar()) |c| {
-                if (c != '\'') {
-                    return error.UnmatchedSingleQuote;
-                }
-            } else {
-                return error.UnmatchedSingleQuote;
-            }
-            break :blk .{ .char = char };
-        },
-        '"' => blk: {
-            // TODO: Escaping
-            self.idx += 1;
-            var size: usize = 0;
-            for (self.source[self.idx..]) |c| {
-                if (c == '"') {
-                    break;
-                }
-                size += 1;
-            } else {
-                // We reached the end of the source, but no end of string was found
-                return error.UnmatchedDoubleQuote;
-            }
-            const string = try allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
-            advance_by = size + 1;
-            break :blk .{ .string = string };
-        },
-        '!', '#'...'&', '*', '+', ',', '-', '.', '/', ':'...'~' => blk: {
-            var size: usize = 1;
-            for (self.source[self.idx + 1 ..]) |c| {
-                if (!isIdentChar(c)) {
-                    break;
-                }
-                size += 1;
-            }
-            const ident = try allocator.dupe(self.source[self.idx .. self.idx + size]);
-            advance_by = size;
-            break :blk .{ .ident = ident };
-        },
+        '\'' => .{ .char = try self.tokenizeChar() },
+        '"' => .{ .string = try self.tokenizeString(allocator, &advance_by) },
+        '!', '#'...'&', '*', '+', ',', '-', '.', '/', ':'...'~' => .{ .ident = try self.tokenizeIdent(allocator, &advance_by) },
         '0'...'9' => blk: {
             // TODO: Handle other bases and decimal numbers
             var number: i64 = 0;
