@@ -126,3 +126,57 @@ pub fn parseExpression(self: *Self) anyerror!?Expression {
     };
     return expression;
 }
+
+test "parse empty" {
+    const expect = std.testing.expect;
+    const allocator = std.testing.allocator;
+    const source =
+        \\
+    ;
+    var parser = Self.init(allocator, source);
+
+    try expect(try parser.parseExpression() == null);
+    // Still empty
+    try expect(try parser.parseExpression() == null);
+}
+
+test "parse complicated" {
+    const expect = std.testing.expect;
+    const allocator = std.testing.allocator;
+    const source =
+        \\("hello" 42 () 'c' 3.14)
+    ;
+    var parser = Self.init(allocator, source);
+
+    const maybe_expression = try parser.parseExpression();
+    try expect(maybe_expression != null);
+    const expression = maybe_expression.?;
+    defer expression.deinit(allocator);
+    switch (expression) {
+        .list => |list| {
+            try expect(list.elements.items.len == 5);
+            try expect(switch (list.elements.items[0]) {
+                .string => |string| std.mem.eql(u8, string, "hello"),
+                else => false,
+            });
+            try expect(switch (list.elements.items[1]) {
+                .int => |int| int == 42,
+                else => false,
+            });
+            try expect(switch (list.elements.items[2]) {
+                .list => |inner| inner.elements.items.len == 0,
+                else => false,
+            });
+            try expect(switch (list.elements.items[3]) {
+                .char => |char| char == 'c',
+                else => false,
+            });
+            try expect(switch (list.elements.items[4]) {
+                .float => |float| float == 3.14,
+                else => false,
+            });
+        },
+        else => return error.ExpectedList,
+    }
+    try expect(try parser.parseExpression() == null);
+}

@@ -115,6 +115,8 @@ pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error 
         '0'...'9' => blk: {
             // TODO: Handle other bases and decimal numbers
             var number: i64 = 0;
+            const start_idx = self.idx;
+            advance_by = 0;
             while (self.peekChar()) |c| : (self.idx += 1) {
                 if (!std.ascii.isDigit(c)) {
                     break;
@@ -122,8 +124,18 @@ pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error 
                 number = 10 * number + c - '0';
             }
 
-            advance_by = 0;
-            break :blk .{ .int = number };
+            // TODO: Scientific notation?
+            if (self.peekChar() != '.') {
+                break :blk .{ .int = number };
+            }
+            self.idx += 1;
+            while (self.peekChar()) |c| : (self.idx += 1) {
+                if (!std.ascii.isDigit(c)) {
+                    break;
+                }
+            }
+            const float = std.fmt.parseFloat(f64, self.source[start_idx..self.idx]) catch unreachable;
+            break :blk .{ .float = float };
         },
         else => return error.InvalidToken,
     };
@@ -205,7 +217,7 @@ fn expectInt(allocator: std.mem.Allocator, token: ?Token, expected_int: i64) !vo
     }
 }
 
-fn expectFloat(allocator: std.mem.Allocator, token: ?Token, expected_int: i64) !void {
+fn expectFloat(allocator: std.mem.Allocator, token: ?Token, expected_float: f64) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -213,9 +225,9 @@ fn expectFloat(allocator: std.mem.Allocator, token: ?Token, expected_int: i64) !
     }
     if (token) |tok| {
         return switch (tok) {
-            .int => |int| {
-                if (int != expected_int) {
-                    return error.WrongInt;
+            .float => |float| {
+                if (float != expected_float) {
+                    return error.WrongFloat;
                 }
             },
             else => error.WrongToken,
@@ -303,6 +315,23 @@ test "parentheses" {
     try expectRparen(allocator, try tokenizer.next(allocator));
     try expectLparen(allocator, try tokenizer.next(allocator));
     try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectNoToken(allocator, try tokenizer.next(allocator));
+}
+
+test "ints" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\ 0 10 0.0 4.2 20.0 0.001 'c' 
+    ;
+    var tokenizer = Self.init(source);
+
+    try expectInt(allocator, try tokenizer.next(allocator), 0);
+    try expectInt(allocator, try tokenizer.next(allocator), 10);
+    try expectFloat(allocator, try tokenizer.next(allocator), 0.0);
+    try expectFloat(allocator, try tokenizer.next(allocator), 4.2);
+    try expectFloat(allocator, try tokenizer.next(allocator), 20.0);
+    try expectFloat(allocator, try tokenizer.next(allocator), 0.001);
+    try expectChar(allocator, try tokenizer.next(allocator), 'c');
     try expectNoToken(allocator, try tokenizer.next(allocator));
 }
 
