@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 
 const Self = @This();
 
@@ -11,7 +12,7 @@ const Token = union(enum) {
     int: i64,
     float: f64,
 
-    pub fn deinit(self: Token, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: Token, allocator: Allocator) void {
         switch (self) {
             .ident => |ident| allocator.free(ident),
             .string => |string| allocator.free(string),
@@ -75,7 +76,7 @@ fn tokenizeChar(self: *Self) Error!u8 {
     return char;
 }
 
-fn tokenizeString(self: *Self, allocator: std.mem.Allocator, advance_by: *usize) (std.mem.Allocator.Error || Error)![]u8 {
+fn tokenizeString(self: *Self, allocator: Allocator, advance_by: *usize) (Allocator.Error || Error)![]u8 {
     // TODO: Escaping
     self.idx += 1;
     var size: usize = 0;
@@ -92,7 +93,7 @@ fn tokenizeString(self: *Self, allocator: std.mem.Allocator, advance_by: *usize)
     return allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
 }
 
-fn tokenizeIdent(self: *Self, allocator: std.mem.Allocator, advance_by: *usize) (std.mem.Allocator.Error || Error)![]u8 {
+fn tokenizeIdent(self: *Self, allocator: Allocator, advance_by: *usize) (Allocator.Error || Error)![]u8 {
     var size: usize = 1;
     for (self.source[self.idx + 1 ..]) |c| {
         if (!isIdentChar(c)) {
@@ -104,7 +105,7 @@ fn tokenizeIdent(self: *Self, allocator: std.mem.Allocator, advance_by: *usize) 
     return allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
 }
 
-pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error || Error)!?Token {
+pub fn next(self: *Self, allocator: Allocator) (Allocator.Error || Error)!?Token {
     self.skipWhitespace();
 
     var advance_by: usize = 1;
@@ -147,7 +148,7 @@ pub fn next(self: *Self, allocator: std.mem.Allocator) (std.mem.Allocator.Error 
     return token;
 }
 
-fn expectLparen(allocator: std.mem.Allocator, token: ?Token) !void {
+fn expectLparen(allocator: Allocator, token: ?Token) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -163,7 +164,7 @@ fn expectLparen(allocator: std.mem.Allocator, token: ?Token) !void {
     }
 }
 
-fn expectRparen(allocator: std.mem.Allocator, token: ?Token) !void {
+fn expectRparen(allocator: Allocator, token: ?Token) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -179,7 +180,7 @@ fn expectRparen(allocator: std.mem.Allocator, token: ?Token) !void {
     }
 }
 
-fn expectChar(allocator: std.mem.Allocator, token: ?Token, expected_char: u8) !void {
+fn expectChar(allocator: Allocator, token: ?Token, expected_char: u8) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -199,7 +200,7 @@ fn expectChar(allocator: std.mem.Allocator, token: ?Token, expected_char: u8) !v
     }
 }
 
-fn expectInt(allocator: std.mem.Allocator, token: ?Token, expected_int: i64) !void {
+fn expectInt(allocator: Allocator, token: ?Token, expected_int: i64) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -219,7 +220,7 @@ fn expectInt(allocator: std.mem.Allocator, token: ?Token, expected_int: i64) !vo
     }
 }
 
-fn expectFloat(allocator: std.mem.Allocator, token: ?Token, expected_float: f64) !void {
+fn expectFloat(allocator: Allocator, token: ?Token, expected_float: f64) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -239,7 +240,7 @@ fn expectFloat(allocator: std.mem.Allocator, token: ?Token, expected_float: f64)
     }
 }
 
-fn expectIdent(allocator: std.mem.Allocator, token: ?Token, expected_ident: []const u8) !void {
+fn expectIdent(allocator: Allocator, token: ?Token, expected_ident: []const u8) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -259,7 +260,7 @@ fn expectIdent(allocator: std.mem.Allocator, token: ?Token, expected_ident: []co
     }
 }
 
-fn expectString(allocator: std.mem.Allocator, token: ?Token, expected_string: []const u8) !void {
+fn expectString(allocator: Allocator, token: ?Token, expected_string: []const u8) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);
@@ -279,7 +280,7 @@ fn expectString(allocator: std.mem.Allocator, token: ?Token, expected_string: []
     }
 }
 
-fn expectNoToken(allocator: std.mem.Allocator, token: ?Token) !void {
+fn expectNoToken(allocator: Allocator, token: ?Token) !void {
     defer {
         if (token) |tok| {
             tok.deinit(allocator);

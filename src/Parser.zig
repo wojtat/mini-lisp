@@ -1,17 +1,18 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const Tokenizer = @import("Tokenizer.zig");
 
 pub const List = struct {
     elements: std.ArrayList(Expression),
 
-    pub fn deinit(self: List, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: List, allocator: Allocator) void {
         for (self.elements.items) |element| {
             element.deinit(allocator);
         }
         self.elements.deinit();
     }
 
-    pub fn dupe(self: List, allocator: std.mem.Allocator) std.mem.Allocator.Error!List {
+    pub fn dupe(self: List, allocator: Allocator) Allocator.Error!List {
         var elements = std.ArrayList(Expression).init(allocator);
         errdefer {
             for (elements.items) |element| {
@@ -44,7 +45,7 @@ pub const Expression = union(enum) {
     ident: []const u8,
     list: List,
 
-    pub fn deinit(self: Expression, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: Expression, allocator: Allocator) void {
         switch (self) {
             .string => |string| allocator.free(string),
             .ident => |ident| allocator.free(ident),
@@ -53,7 +54,7 @@ pub const Expression = union(enum) {
         }
     }
 
-    pub fn dupe(self: Expression, allocator: std.mem.Allocator) std.mem.Allocator.Error!Expression {
+    pub fn dupe(self: Expression, allocator: Allocator) Allocator.Error!Expression {
         return switch (self) {
             .int, .float, .char => self,
             .string => |string| .{ .string = try allocator.dupe(u8, string) },
@@ -80,17 +81,17 @@ const Error = error{ UnexpectedEndOfInput, UnexpectedRparen };
 
 const Self = @This();
 
-allocator: std.mem.Allocator,
+allocator: Allocator,
 tokenizer: Tokenizer,
 
-pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
+pub fn init(allocator: Allocator, source: []const u8) Self {
     return .{
         .allocator = allocator,
         .tokenizer = Tokenizer.init(source),
     };
 }
 
-fn parseList(self: *Self) (std.mem.Allocator.Error || Tokenizer.Error || Error)!List {
+fn parseList(self: *Self) (Allocator.Error || Tokenizer.Error || Error)!List {
     var elements = std.ArrayList(Expression).init(self.allocator);
     errdefer {
         for (elements.items) |element| {
@@ -110,7 +111,7 @@ fn parseList(self: *Self) (std.mem.Allocator.Error || Tokenizer.Error || Error)!
     return .{ .elements = elements };
 }
 
-pub fn parseExpression(self: *Self) (std.mem.Allocator.Error || Tokenizer.Error || Error)!?Expression {
+pub fn parseExpression(self: *Self) (Allocator.Error || Tokenizer.Error || Error)!?Expression {
     const maybe_token = try self.tokenizer.next(self.allocator);
     const token = maybe_token orelse return null;
 

@@ -3,6 +3,7 @@ const Tokenizer = @import("Tokenizer.zig");
 const Parser = @import("Parser.zig");
 const Expression = Parser.Expression;
 const List = Parser.List;
+const Allocator = std.mem.Allocator;
 
 const VariableEnvironment = struct {
     const SymbolValue = struct {
@@ -14,17 +15,17 @@ const VariableEnvironment = struct {
     symbol_stack: std.ArrayListUnmanaged(SymbolValue) = .{},
     stack_counts: std.ArrayListUnmanaged(usize) = .{},
 
-    fn deinit(self: *VariableEnvironment, allocator: std.mem.Allocator) void {
+    fn deinit(self: *VariableEnvironment, allocator: Allocator) void {
         self.symbols.deinit(allocator);
         self.symbol_stack.deinit(allocator);
         self.stack_counts.deinit(allocator);
     }
 
-    fn pushFrame(self: *VariableEnvironment, allocator: std.mem.Allocator) !void {
+    fn pushFrame(self: *VariableEnvironment, allocator: Allocator) !void {
         try self.stack_counts.append(allocator, 0);
     }
 
-    fn popAndDeinitFrame(self: *VariableEnvironment, allocator: std.mem.Allocator) !void {
+    fn popAndDeinitFrame(self: *VariableEnvironment, allocator: Allocator) !void {
         const num_symbols = self.stack_counts.popOrNull() orelse return error.InvalidOperation;
         for (0..num_symbols) |_| {
             const symbol_value = self.symbol_stack.pop();
@@ -39,7 +40,7 @@ const VariableEnvironment = struct {
         }
     }
 
-    fn mapSymbol(self: *VariableEnvironment, allocator: std.mem.Allocator, symbol: []const u8, value: Expression) !void {
+    fn mapSymbol(self: *VariableEnvironment, allocator: Allocator, symbol: []const u8, value: Expression) !void {
         // Must have a frame
         if (self.stack_counts.items.len == 0) {
             return error.InvalidOperation;
@@ -57,10 +58,10 @@ const VariableEnvironment = struct {
 };
 
 const Evaluator = struct {
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     environment: VariableEnvironment,
 
-    fn init(allocator: std.mem.Allocator) !Evaluator {
+    fn init(allocator: Allocator) !Evaluator {
         var environment = VariableEnvironment{};
         errdefer environment.deinit(allocator);
         try environment.pushFrame(allocator);
