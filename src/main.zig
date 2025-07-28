@@ -87,7 +87,7 @@ const Evaluator = struct {
         const callee = try self.evaluate(list.elements.items[0]);
         defer callee.deinit(self.allocator);
         switch (callee) {
-            .char, .int, .float, .string => return error.ExpectedCallable,
+            .bool, .char, .int, .float, .string => return error.ExpectedCallable,
             .ident => |ident| {
                 if (std.mem.eql(u8, ident, "lambda")) {
                     // This evaluates to the procedure defined by the lambda
@@ -184,7 +184,7 @@ const Evaluator = struct {
 
     fn evaluate(self: *Evaluator, expression: Expression) anyerror!Expression {
         const evaluated = switch (expression) {
-            .char, .float, .int, .string => try expression.dupe(self.allocator),
+            .bool, .char, .float, .int, .string => try expression.dupe(self.allocator),
             .ident => |ident| blk: {
                 const maybe_value = self.environment.symbols.get(ident);
                 if (maybe_value) |value| {

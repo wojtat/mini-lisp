@@ -8,6 +8,7 @@ const Token = union(enum) {
     rparen,
     ident: []u8,
     string: []u8,
+    bool: bool,
     char: u8,
     int: i64,
     float: f64,
@@ -93,7 +94,7 @@ fn tokenizeString(self: *Self, allocator: Allocator, advance_by: *usize) (Alloca
     return allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
 }
 
-fn tokenizeIdent(self: *Self, allocator: Allocator, advance_by: *usize) (Allocator.Error || Error)![]u8 {
+fn tokenizeIdent(self: *Self, allocator: Allocator, advance_by: *usize) (Allocator.Error || Error)!Token {
     var size: usize = 1;
     for (self.source[self.idx + 1 ..]) |c| {
         if (!isIdentChar(c)) {
@@ -102,7 +103,13 @@ fn tokenizeIdent(self: *Self, allocator: Allocator, advance_by: *usize) (Allocat
         size += 1;
     }
     advance_by.* = size;
-    return allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
+    const slice = self.source[self.idx .. self.idx + size];
+    if (std.mem.eql(u8, slice, "true")) {
+        return .{ .bool = true };
+    } else if (std.mem.eql(u8, slice, "false")) {
+        return .{ .bool = false };
+    }
+    return .{ .ident = try allocator.dupe(u8, slice) };
 }
 
 pub fn next(self: *Self, allocator: Allocator) (Allocator.Error || Error)!?Token {
@@ -114,7 +121,7 @@ pub fn next(self: *Self, allocator: Allocator) (Allocator.Error || Error)!?Token
         ')' => .{ .rparen = {} },
         '\'' => .{ .char = try self.tokenizeChar() },
         '"' => .{ .string = try self.tokenizeString(allocator, &advance_by) },
-        '!', '#'...'&', '*', '+', ',', '-', '.', '/', ':'...'~' => .{ .ident = try self.tokenizeIdent(allocator, &advance_by) },
+        '!', '#'...'&', '*', '+', ',', '-', '.', '/', ':'...'~' => try self.tokenizeIdent(allocator, &advance_by),
         '0'...'9' => blk: {
             // TODO: Handle other bases and decimal numbers
             var number: i64 = 0;

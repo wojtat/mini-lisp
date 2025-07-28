@@ -38,6 +38,7 @@ pub const List = struct {
 };
 
 pub const Expression = union(enum) {
+    bool: bool,
     int: i64,
     float: f64,
     char: u8,
@@ -56,7 +57,7 @@ pub const Expression = union(enum) {
 
     pub fn dupe(self: Expression, allocator: Allocator) Allocator.Error!Expression {
         return switch (self) {
-            .int, .float, .char => self,
+            .bool, .int, .float, .char => self,
             .string => |string| .{ .string = try allocator.dupe(u8, string) },
             .ident => |ident| .{ .ident = try allocator.dupe(u8, ident) },
             .list => |list| .{ .list = try list.dupe(allocator) },
@@ -65,6 +66,7 @@ pub const Expression = union(enum) {
 
     pub fn debugPrint(self: Expression) void {
         switch (self) {
+            .bool => |b| std.debug.print("{s} ", .{if (b) "true" else "false"}),
             .int => |int| std.debug.print("{d} ", .{int}),
             .float => |float| std.debug.print("{d} ", .{float}),
             .char => |char| std.debug.print("{c} ", .{char}),
@@ -121,6 +123,7 @@ pub fn parseExpression(self: *Self) (Allocator.Error || Tokenizer.Error || Error
     const expression: Expression = switch (token) {
         .lparen => .{ .list = try self.parseList() },
         .rparen => return error.UnexpectedRparen,
+        .bool => |b| .{ .bool = b },
         .char => |char| .{ .char = char },
         .int => |int| .{ .int = int },
         .float => |float| .{ .float = float },
