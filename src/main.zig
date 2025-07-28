@@ -11,6 +11,22 @@ const List = struct {
         self.elements.deinit();
     }
 
+    fn dupe(self: List, allocator: std.mem.Allocator) !List {
+        var elements = std.ArrayList(Expression).init(allocator);
+        errdefer {
+            for (elements.items) |element| {
+                element.deinit(allocator);
+            }
+            elements.deinit();
+        }
+        for (self.elements.items) |element| {
+            const duped_element = try element.dupe(allocator);
+            errdefer duped_element.deinit(allocator);
+            try elements.append(duped_element);
+        }
+        return .{ .elements = elements };
+    }
+
     fn debugPrint(self: List) void {
         std.debug.print("(", .{});
         for (self.elements.items) |element| {
@@ -24,8 +40,8 @@ const Expression = union(enum) {
     int: i64,
     float: f64,
     char: u8,
-    string: []u8,
-    ident: []u8,
+    string: []const u8,
+    ident: []const u8,
     list: List,
 
     fn deinit(self: Expression, allocator: std.mem.Allocator) void {
@@ -35,6 +51,15 @@ const Expression = union(enum) {
             .list => |list| list.deinit(allocator),
             else => {},
         }
+    }
+
+    fn dupe(self: Expression, allocator: std.mem.Allocator) anyerror!Expression {
+        return switch (self) {
+            .int, .float, .char => self,
+            .string => |string| .{ .string = try allocator.dupe(u8, string) },
+            .ident => |ident| .{ .ident = try allocator.dupe(u8, ident) },
+            .list => |list| .{ .list = try list.dupe(allocator) },
+        };
     }
 
     fn debugPrint(self: Expression) void {
