@@ -20,7 +20,7 @@ const Token = union(enum) {
     }
 };
 
-const Error = error{
+pub const Error = error{
     UnmatchedDoubleQuote,
     UnmatchedSingleQuote,
     InvalidToken,

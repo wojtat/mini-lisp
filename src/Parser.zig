@@ -11,7 +11,7 @@ pub const List = struct {
         self.elements.deinit();
     }
 
-    pub fn dupe(self: List, allocator: std.mem.Allocator) !List {
+    pub fn dupe(self: List, allocator: std.mem.Allocator) std.mem.Allocator.Error!List {
         var elements = std.ArrayList(Expression).init(allocator);
         errdefer {
             for (elements.items) |element| {
@@ -53,7 +53,7 @@ pub const Expression = union(enum) {
         }
     }
 
-    pub fn dupe(self: Expression, allocator: std.mem.Allocator) anyerror!Expression {
+    pub fn dupe(self: Expression, allocator: std.mem.Allocator) std.mem.Allocator.Error!Expression {
         return switch (self) {
             .int, .float, .char => self,
             .string => |string| .{ .string = try allocator.dupe(u8, string) },
@@ -76,6 +76,8 @@ pub const Expression = union(enum) {
     }
 };
 
+const Error = error{ UnexpectedEndOfInput, UnexpectedRparen };
+
 const Self = @This();
 
 allocator: std.mem.Allocator,
@@ -88,7 +90,7 @@ pub fn init(allocator: std.mem.Allocator, source: []const u8) Self {
     };
 }
 
-fn parseList(self: *Self) !List {
+fn parseList(self: *Self) (std.mem.Allocator.Error || Tokenizer.Error || Error)!List {
     var elements = std.ArrayList(Expression).init(self.allocator);
     errdefer {
         for (elements.items) |element| {
@@ -108,7 +110,7 @@ fn parseList(self: *Self) !List {
     return .{ .elements = elements };
 }
 
-pub fn parseExpression(self: *Self) anyerror!?Expression {
+pub fn parseExpression(self: *Self) (std.mem.Allocator.Error || Tokenizer.Error || Error)!?Expression {
     const maybe_token = try self.tokenizer.next(self.allocator);
     const token = maybe_token orelse return null;
 
