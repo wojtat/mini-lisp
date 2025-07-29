@@ -68,7 +68,17 @@ const Evaluator = struct {
         // TODO: Add the rest of the built-ins
         try environment.mapSymbol(allocator, "lambda", .{ .ident = "lambda" });
         try environment.mapSymbol(allocator, "define", .{ .ident = "define" });
+        try environment.mapSymbol(allocator, "quote", .{ .ident = "quote" });
         try environment.mapSymbol(allocator, "if", .{ .ident = "if" });
+        try environment.mapSymbol(allocator, "car", .{ .ident = "car" });
+        try environment.mapSymbol(allocator, "cdr", .{ .ident = "cdr" });
+        try environment.mapSymbol(allocator, "cons", .{ .ident = "cons" });
+        try environment.mapSymbol(allocator, "empty?", .{ .ident = "empty?" });
+        try environment.mapSymbol(allocator, "+", .{ .ident = "+" });
+        try environment.mapSymbol(allocator, "-", .{ .ident = "-" });
+        try environment.mapSymbol(allocator, "*", .{ .ident = "*" });
+        try environment.mapSymbol(allocator, "/", .{ .ident = "/" });
+        try environment.mapSymbol(allocator, ">", .{ .ident = ">" });
         return .{
             .allocator = allocator,
             .environment = environment,
@@ -77,6 +87,252 @@ const Evaluator = struct {
 
     fn deinit(self: *Evaluator) void {
         self.environment.deinit(self.allocator);
+    }
+
+    fn builtInLambda(self: *Evaluator, list: List) !Expression {
+        // This evaluates to the procedure defined by the lambda
+        // Return the original list
+        return .{ .list = try list.dupe(self.allocator) };
+    }
+
+    fn builtInDefine(self: *Evaluator, list: List) !Expression {
+        // TODO: Handle errors
+        const id = switch (list.elements.items[1]) {
+            .ident => |id_ident| id_ident,
+            else => return error.ExpectedIdentifierInDefine,
+        };
+        const value = try self.evaluate(list.elements.items[2]);
+        errdefer value.deinit(self.allocator);
+        try self.environment.mapSymbol(self.allocator, id, value);
+        const dummy_elements = std.ArrayList(Expression).init(self.allocator);
+        return .{ .list = .{ .elements = dummy_elements } };
+    }
+
+    fn builtInQuote(self: *Evaluator, list: List) !Expression {
+        if (list.elements.items.len != 2) {
+            return error.WrongNumberOfArguments;
+        }
+        return list.elements.items[1].dupe(self.allocator);
+    }
+
+    fn builtInIf(self: *Evaluator, list: List) !Expression {
+        if (list.elements.items.len != 4) {
+            return error.WrongNumberOfArguments;
+        }
+        const condition = try self.evaluate(list.elements.items[1]);
+        defer condition.deinit(self.allocator);
+        const is_true = switch (condition) {
+            .bool => |b| b,
+            else => true,
+        };
+        if (is_true) {
+            return self.evaluate(list.elements.items[2]);
+        } else {
+            return self.evaluate(list.elements.items[3]);
+        }
+    }
+
+    fn builtInCar(self: *Evaluator, list: List) !Expression {
+        if (list.elements.items.len != 2) {
+            return error.WrongNumberOfArguments;
+        }
+        var argument = try self.evaluate(list.elements.items[1]);
+        defer argument.deinit(self.allocator);
+        const car = switch (argument) {
+            .list => |*inner| blk: {
+                if (inner.elements.items.len == 0) {
+                    return error.ExpectedCons;
+                }
+                // NOTE: Swap remove is fine because the list will be thrown away anyway
+                break :blk inner.elements.swapRemove(0);
+            },
+            // TODO: Cons cell
+            else => return error.ExpectedCons,
+        };
+        return car;
+    }
+
+    fn builtInCdr(self: *Evaluator, list: List) !Expression {
+        if (list.elements.items.len != 2) {
+            return error.WrongNumberOfArguments;
+        }
+        var argument = try self.evaluate(list.elements.items[1]);
+        errdefer argument.deinit(self.allocator);
+        switch (argument) {
+            .list => |*inner| {
+                if (inner.elements.items.len == 0) {
+                    return error.ExpectedCons;
+                }
+                const expr = inner.elements.orderedRemove(0);
+                expr.deinit(self.allocator);
+            },
+            // TODO: Cons cell
+            else => return error.ExpectedCons,
+        }
+        return argument;
+    }
+
+    fn builtInCons(self: *Evaluator, list: List) !Expression {
+        _ = self;
+        _ = list;
+        return error.Todo;
+    }
+
+    fn builtInEmpty(self: *Evaluator, list: List) !Expression {
+        if (list.elements.items.len != 2) {
+            return error.WrongNumberOfArguments;
+        }
+        const argument = try self.evaluate(list.elements.items[1]);
+        defer argument.deinit(self.allocator);
+        const is_empty = switch (argument) {
+            .list => |inner| inner.elements.items.len == 0,
+            else => false,
+        };
+        return .{ .bool = is_empty };
+    }
+
+    fn builtInAdd(self: *Evaluator, list: List) !Expression {
+        var int_sum: i64 = 0;
+        var idx: usize = 1;
+        for (list.elements.items[1..]) |summand_expression| {
+            const evaluated = try self.evaluate(summand_expression);
+            // NOTE: deinit for numbers is a nop, so this works
+            //       even though we use the float again later
+            defer evaluated.deinit(self.allocator);
+            switch (evaluated) {
+                .int => |int| int_sum += int,
+                .float => break,
+                else => return error.ExpectedNumber,
+            }
+            idx += 1;
+        }
+        if (idx == list.elements.items.len) {
+            // All numbers were integers
+            return .{ .int = int_sum };
+        }
+        // We stopped at a float
+        var float_sum: f64 = @floatFromInt(int_sum);
+        for (list.elements.items[idx..]) |summand_expression| {
+            const evaluated = try self.evaluate(summand_expression);
+            defer evaluated.deinit(self.allocator);
+            switch (evaluated) {
+                .int => |int| float_sum += @floatFromInt(int),
+                .float => |float| float_sum += float,
+                else => return error.ExpectedNumber,
+            }
+        }
+        return .{ .float = float_sum };
+    }
+
+    fn builtInSub(self: *Evaluator, list: List) !Expression {
+        if (list.elements.items.len == 1) {
+            return error.WrongNumberOfArguments;
+        }
+        if (list.elements.items.len == 2) {
+            const argument = try self.evaluate(list.elements.items[1]);
+            defer argument.deinit(self.allocator);
+            return switch (argument) {
+                .int => |int| .{ .int = -int },
+                .float => |float| .{ .float = -float },
+                else => return error.ExpectedNumber,
+            };
+        }
+
+        const first = try self.evaluate(list.elements.items[1]);
+        defer first.deinit(self.allocator);
+        var int_sum: i64 = 0;
+        var float_sum: f64 = 0.0;
+
+        const is_int = switch (first) {
+            .int => |int| blk: {
+                int_sum = int;
+                break :blk true;
+            },
+            .float => |float| blk: {
+                float_sum = float;
+                break :blk false;
+            },
+            else => return error.ExpectedNumber,
+        };
+        var idx: usize = 2;
+
+        if (is_int) {
+            for (list.elements.items[idx..]) |summand_expression| {
+                const evaluated = try self.evaluate(summand_expression);
+                // NOTE: deinit for numbers is a nop, so this works
+                //       even though we use the float again later
+                defer evaluated.deinit(self.allocator);
+                switch (evaluated) {
+                    .int => |int| int_sum -= int,
+                    .float => break,
+                    else => return error.ExpectedNumber,
+                }
+                idx += 1;
+            }
+
+            if (idx == list.elements.items.len) {
+                // All numbers were integers
+                return .{ .int = int_sum };
+            }
+            float_sum = @floatFromInt(int_sum);
+        }
+
+        // We stopped at a float
+        for (list.elements.items[idx..]) |summand_expression| {
+            const evaluated = try self.evaluate(summand_expression);
+            defer evaluated.deinit(self.allocator);
+            switch (evaluated) {
+                .int => |int| float_sum -= @floatFromInt(int),
+                .float => |float| float_sum -= float,
+                else => return error.ExpectedNumber,
+            }
+        }
+        return .{ .float = float_sum };
+    }
+
+    fn builtInMul(self: *Evaluator, list: List) !Expression {
+        var int_prod: i64 = 1;
+        var idx: usize = 1;
+        for (list.elements.items[1..]) |factor_expression| {
+            const evaluated = try self.evaluate(factor_expression);
+            // NOTE: deinit for numbers is a nop, so this works
+            //       even though we use the float again later
+            defer evaluated.deinit(self.allocator);
+            switch (evaluated) {
+                .int => |int| int_prod *= int,
+                .float => break,
+                else => return error.ExpectedNumber,
+            }
+            idx += 1;
+        }
+        if (idx == list.elements.items.len) {
+            // All numbers were integers
+            return .{ .int = int_prod };
+        }
+        // We stopped at a float
+        var float_prod: f64 = @floatFromInt(int_prod);
+        for (list.elements.items[idx..]) |factor_expression| {
+            const evaluated = try self.evaluate(factor_expression);
+            defer evaluated.deinit(self.allocator);
+            switch (evaluated) {
+                .int => |int| float_prod *= @floatFromInt(int),
+                .float => |float| float_prod *= float,
+                else => return error.ExpectedNumber,
+            }
+        }
+        return .{ .float = float_prod };
+    }
+
+    fn builtInDiv(self: *Evaluator, list: List) !Expression {
+        _ = self;
+        _ = list;
+        return error.Todo;
+    }
+
+    fn builtInGreater(self: *Evaluator, list: List) !Expression {
+        _ = self;
+        _ = list;
+        return error.Todo;
     }
 
     fn call(self: *Evaluator, list: List) !Expression {
@@ -90,40 +346,31 @@ const Evaluator = struct {
             .bool, .char, .int, .float, .string => return error.ExpectedCallable,
             .ident => |ident| {
                 if (std.mem.eql(u8, ident, "lambda")) {
-                    // This evaluates to the procedure defined by the lambda
-                    // Return the original list
-                    return .{
-                        .list = try list.dupe(self.allocator),
-                    };
+                    return self.builtInLambda(list);
                 } else if (std.mem.eql(u8, ident, "define")) {
-                    // TODO: Handle errors
-                    const id = switch (list.elements.items[1]) {
-                        .ident => |id_ident| id_ident,
-                        else => return error.ExpectedIdentifierInDefine,
-                    };
-                    const value = try self.evaluate(list.elements.items[2]);
-                    errdefer value.deinit(self.allocator);
-                    try self.environment.mapSymbol(self.allocator, id, value);
-                    const dummy_elements = std.ArrayList(Expression).init(self.allocator);
-                    return .{ .list = .{ .elements = dummy_elements } };
+                    return self.builtInDefine(list);
+                } else if (std.mem.eql(u8, ident, "quote")) {
+                    return self.builtInQuote(list);
                 } else if (std.mem.eql(u8, ident, "if")) {
-                    // TODO: Handle errors
-                    const condition = try self.evaluate(list.elements.items[1]);
-                    defer condition.deinit(self.allocator);
-                    const is_true = switch (condition) {
-                        .list => |cond_list| cond_list.elements.items.len == 0,
-                        else => true,
-                    };
-                    if (is_true) {
-                        return self.evaluate(list.elements.items[1]);
-                    } else {
-                        return self.evaluate(list.elements.items[2]);
-                    }
-                } else if (std.mem.eql(u8, ident, "zero?")) {
-                    // TODO: Handle errors
-                    const argument = try self.evaluate(list.elements.items[1]);
-                    defer argument.deinit(self.allocator);
-                    return error.Todo;
+                    return self.builtInIf(list);
+                } else if (std.mem.eql(u8, ident, "car")) {
+                    return self.builtInCar(list);
+                } else if (std.mem.eql(u8, ident, "cdr")) {
+                    return self.builtInCdr(list);
+                } else if (std.mem.eql(u8, ident, "cons")) {
+                    return self.builtInCons(list);
+                } else if (std.mem.eql(u8, ident, "empty?")) {
+                    return self.builtInEmpty(list);
+                } else if (std.mem.eql(u8, ident, "+")) {
+                    return self.builtInAdd(list);
+                } else if (std.mem.eql(u8, ident, "-")) {
+                    return self.builtInSub(list);
+                } else if (std.mem.eql(u8, ident, "*")) {
+                    return self.builtInMul(list);
+                } else if (std.mem.eql(u8, ident, "/")) {
+                    return self.builtInDiv(list);
+                } else if (std.mem.eql(u8, ident, ">")) {
+                    return self.builtInGreater(list);
                 } else {
                     return error.ExpectedCallable;
                 }
@@ -211,9 +458,9 @@ pub fn main() !void {
     }
 
     const source =
-        \\((lambda ()
-        \\    (define hi "hello")
-        \\    hi))
+        \\((lambda (op n)
+        \\    (define five 5)
+        \\    (+ 1.7 five n (op 4))) (quote +) 3.3)
     ;
 
     var parser = Parser.init(allocator, source);
