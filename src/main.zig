@@ -80,6 +80,7 @@ const Evaluator = struct {
         try environment.mapSymbol(allocator, "*", .{ .ident = "*" });
         try environment.mapSymbol(allocator, "/", .{ .ident = "/" });
         try environment.mapSymbol(allocator, ">", .{ .ident = ">" });
+        try environment.mapSymbol(allocator, "zero?", .{ .ident = "zero?" });
 
         // Push a new global frame, so that we can later clean it up
         try environment.pushFrame(allocator);
@@ -341,6 +342,20 @@ const Evaluator = struct {
         return error.Todo;
     }
 
+    fn builtInZero(self: *Evaluator, list: List) !Expression {
+        if (list.elements.items.len != 2) {
+            return error.WrongNumberOfArguments;
+        }
+        var argument = try self.evaluate(list.elements.items[1]);
+        defer argument.deinit(self.allocator);
+        const is_zero = switch (argument) {
+            .int => |int| int == 0,
+            .float => |float| float == 0,
+            else => false,
+        };
+        return .{ .bool = is_zero };
+    }
+
     fn call(self: *Evaluator, list: List) !Expression {
         if (list.elements.items.len == 0) {
             return error.MissingProcedure;
@@ -377,6 +392,8 @@ const Evaluator = struct {
                     return self.builtInDiv(list);
                 } else if (std.mem.eql(u8, ident, ">")) {
                     return self.builtInGreater(list);
+                } else if (std.mem.eql(u8, ident, "zero?")) {
+                    return self.builtInZero(list);
                 } else {
                     return error.ExpectedCallable;
                 }
