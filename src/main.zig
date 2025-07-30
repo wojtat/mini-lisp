@@ -29,6 +29,7 @@ const VariableEnvironment = struct {
         const num_symbols = self.stack_counts.popOrNull() orelse return error.InvalidOperation;
         for (0..num_symbols) |_| {
             const symbol_value = self.symbol_stack.pop();
+            defer allocator.free(symbol_value.symbol);
             if (symbol_value.value) |value| {
                 const maybe_kv = self.symbols.fetchPut(allocator, symbol_value.symbol, value) catch unreachable;
                 const v = maybe_kv.?.value;
@@ -79,6 +80,9 @@ const Evaluator = struct {
         try environment.mapSymbol(allocator, "*", .{ .ident = "*" });
         try environment.mapSymbol(allocator, "/", .{ .ident = "/" });
         try environment.mapSymbol(allocator, ">", .{ .ident = ">" });
+
+        // Push a new global frame, so that we can later clean it up
+        try environment.pushFrame(allocator);
         return .{
             .allocator = allocator,
             .environment = environment,
@@ -86,6 +90,8 @@ const Evaluator = struct {
     }
 
     fn deinit(self: *Evaluator) void {
+        // We pushed a new global frame in init
+        self.environment.popAndDeinitFrame(self.allocator) catch unreachable;
         self.environment.deinit(self.allocator);
     }
 
@@ -103,7 +109,7 @@ const Evaluator = struct {
         };
         const value = try self.evaluate(list.elements.items[2]);
         errdefer value.deinit(self.allocator);
-        try self.environment.mapSymbol(self.allocator, id, value);
+        try self.environment.mapSymbol(self.allocator, try self.allocator.dupe(u8, id), value);
         const dummy_elements = std.ArrayList(Expression).init(self.allocator);
         return .{ .list = .{ .elements = dummy_elements } };
     }
@@ -402,6 +408,8 @@ const Evaluator = struct {
         }
         // Populate environment
         try self.environment.pushFrame(self.allocator);
+        // We must be in a valid state since we just pushed a frame
+        defer self.environment.popAndDeinitFrame(self.allocator) catch unreachable;
         for (list.elements.items[1..], parameter_list.elements.items) |argument, parameter| {
             // Evaluate function arguments eagerly
             const argument_evaluated = try self.evaluate(argument);
@@ -410,7 +418,7 @@ const Evaluator = struct {
                 .ident => |param_ident| param_ident,
                 else => return error.MalformedLambda,
             };
-            try self.environment.mapSymbol(self.allocator, parameter_ident, argument_evaluated);
+            try self.environment.mapSymbol(self.allocator, try self.allocator.dupe(u8, parameter_ident), argument_evaluated);
         }
         // Evaluate the body
         var maybe_return_expression: ?Expression = null;
@@ -425,7 +433,6 @@ const Evaluator = struct {
         }
         const return_expression = maybe_return_expression orelse unreachable;
         errdefer return_expression.deinit(self.allocator);
-        try self.environment.popAndDeinitFrame(self.allocator);
         return return_expression;
     }
 
@@ -458,21 +465,32 @@ pub fn main() !void {
     }
 
     const source =
-        \\((lambda (op n)
-        \\    (define five 5)
-        \\    (+ 1.7 five n (op 4))) (quote +) 3.3)
+        \\(define factorial (lambda (n)
+        \\    (if (zero? n)
+        \\        1
+        \\        (* n (factorial (- n 1))))))
+        \\
+        \\(define fact factorial)
+        \\
+        \\(define f10 (fact 10))
+        \\
+        \\f10
     ;
 
     var parser = Parser.init(allocator, source);
-    const expression = (try parser.parseExpression()) orelse return error.UnexpectedEndOfInput;
-    defer expression.deinit(allocator);
-    expression.debugPrint();
-    std.debug.print("\n", .{});
-
     var evaluator = try Evaluator.init(allocator);
     defer evaluator.deinit();
-    const evaluated = try evaluator.evaluate(expression);
-    defer evaluated.deinit(allocator);
-    evaluated.debugPrint();
-    std.debug.print("\n", .{});
+
+    while (try parser.parseExpression()) |expression| {
+        defer expression.deinit(allocator);
+        std.debug.print("Expression: ", .{});
+        expression.debugPrint();
+        std.debug.print("\n", .{});
+
+        const evaluated = try evaluator.evaluate(expression);
+        defer evaluated.deinit(allocator);
+        std.debug.print("Evaluates to: ", .{});
+        evaluated.debugPrint();
+        std.debug.print("\n", .{});
+    }
 }
