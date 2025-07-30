@@ -66,21 +66,27 @@ const Evaluator = struct {
         var environment = VariableEnvironment{};
         errdefer environment.deinit(allocator);
         try environment.pushFrame(allocator);
+
         // TODO: Add the rest of the built-ins
-        try environment.mapSymbol(allocator, "lambda", .{ .ident = "lambda" });
-        try environment.mapSymbol(allocator, "define", .{ .ident = "define" });
-        try environment.mapSymbol(allocator, "quote", .{ .ident = "quote" });
-        try environment.mapSymbol(allocator, "if", .{ .ident = "if" });
-        try environment.mapSymbol(allocator, "car", .{ .ident = "car" });
-        try environment.mapSymbol(allocator, "cdr", .{ .ident = "cdr" });
-        try environment.mapSymbol(allocator, "cons", .{ .ident = "cons" });
-        try environment.mapSymbol(allocator, "empty?", .{ .ident = "empty?" });
-        try environment.mapSymbol(allocator, "+", .{ .ident = "+" });
-        try environment.mapSymbol(allocator, "-", .{ .ident = "-" });
-        try environment.mapSymbol(allocator, "*", .{ .ident = "*" });
-        try environment.mapSymbol(allocator, "/", .{ .ident = "/" });
-        try environment.mapSymbol(allocator, ">", .{ .ident = ">" });
-        try environment.mapSymbol(allocator, "zero?", .{ .ident = "zero?" });
+        const built_ins = [_][]const u8{
+            "lambda",
+            "define",
+            "quote",
+            "if",
+            "car",
+            "cdr",
+            "cons",
+            "empty?",
+            "zero?",
+            "+",
+            "-",
+            "*",
+            "/",
+            ">",
+        };
+        for (built_ins) |built_in| {
+            try environment.mapSymbol(allocator, built_in, .{ .ident = built_in });
+        }
 
         // Push a new global frame, so that we can later clean it up
         try environment.pushFrame(allocator);
