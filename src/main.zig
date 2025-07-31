@@ -2,7 +2,9 @@ const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 const Parser = @import("Parser.zig");
 const Expression = Parser.Expression;
-const List = Parser.List;
+const LinkedListWrapper = Parser.LinkedListWrapper;
+const PairIter = Parser.PairIter;
+const LinkedListIterator = Parser.LinkedListIterator;
 const Allocator = std.mem.Allocator;
 
 const VariableEnvironment = struct {
@@ -102,113 +104,121 @@ const Evaluator = struct {
         self.environment.deinit(self.allocator);
     }
 
-    fn builtInLambda(self: *Evaluator, list: List) !Expression {
+    fn builtInLambda(self: *Evaluator, list: LinkedListWrapper) !Expression {
         // This evaluates to the procedure defined by the lambda
-        // Return the original list
+        // Return the original LinkedListWrapper
         return .{ .list = try list.dupe(self.allocator) };
     }
 
-    fn builtInDefine(self: *Evaluator, list: List) !Expression {
-        // TODO: Handle errors
-        const id = switch (list.elements.items[1]) {
+    fn builtInDefine(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLen(2)) {
+            return error.WrongNumberOfArguments;
+        }
+        const id = switch (iter.next().?.payload) {
             .ident => |id_ident| id_ident,
             else => return error.ExpectedIdentifierInDefine,
         };
-        const value = try self.evaluate(list.elements.items[2]);
+        const value = try self.evaluate(iter.next().?.payload);
         errdefer value.deinit(self.allocator);
         try self.environment.mapSymbol(self.allocator, try self.allocator.dupe(u8, id), value);
-        const dummy_elements = std.ArrayList(Expression).init(self.allocator);
-        return .{ .list = .{ .elements = dummy_elements } };
+        return .{ .list = .{ .value = null } };
     }
 
-    fn builtInQuote(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len != 2) {
+    fn builtInQuote(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLen(1)) {
             return error.WrongNumberOfArguments;
         }
-        return list.elements.items[1].dupe(self.allocator);
+        return iter.next().?.payload.dupe(self.allocator);
     }
 
-    fn builtInIf(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len != 4) {
+    fn builtInIf(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLen(3)) {
             return error.WrongNumberOfArguments;
         }
-        const condition = try self.evaluate(list.elements.items[1]);
+        const condition = try self.evaluate(iter.next().?.payload);
         defer condition.deinit(self.allocator);
         const is_true = switch (condition) {
             .bool => |b| b,
             else => true,
         };
         if (is_true) {
-            return self.evaluate(list.elements.items[2]);
+            // Skip
         } else {
-            return self.evaluate(list.elements.items[3]);
+            iter.advance(1);
         }
+        return self.evaluate(iter.next().?.payload);
     }
 
-    fn builtInCar(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len != 2) {
+    fn builtInCar(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLen(1)) {
             return error.WrongNumberOfArguments;
         }
-        var argument = try self.evaluate(list.elements.items[1]);
+        var argument = try self.evaluate(iter.next().?.payload);
         defer argument.deinit(self.allocator);
         const car = switch (argument) {
             .list => |*inner| blk: {
-                if (inner.elements.items.len == 0) {
-                    return error.ExpectedCons;
-                }
-                // NOTE: Swap remove is fine because the list will be thrown away anyway
-                break :blk inner.elements.swapRemove(0);
+                const value = inner.removeFirst(self.allocator) orelse return error.ExpectedCons;
+                break :blk value;
             },
-            // TODO: Cons cell
             else => return error.ExpectedCons,
         };
         return car;
     }
 
-    fn builtInCdr(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len != 2) {
+    fn builtInCdr(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLen(1)) {
             return error.WrongNumberOfArguments;
         }
-        var argument = try self.evaluate(list.elements.items[1]);
+        var argument = try self.evaluate(iter.next().?.payload);
         errdefer argument.deinit(self.allocator);
         switch (argument) {
             .list => |*inner| {
-                if (inner.elements.items.len == 0) {
+                if (inner.removeFirst(self.allocator) == null) {
                     return error.ExpectedCons;
                 }
-                const expr = inner.elements.orderedRemove(0);
-                expr.deinit(self.allocator);
             },
-            // TODO: Cons cell
             else => return error.ExpectedCons,
         }
         return argument;
     }
 
-    fn builtInCons(self: *Evaluator, list: List) !Expression {
+    fn builtInCons(self: *Evaluator, list: LinkedListWrapper) !Expression {
         _ = self;
         _ = list;
         return error.Todo;
     }
 
-    fn builtInEmpty(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len != 2) {
+    fn builtInEmpty(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLen(1)) {
             return error.WrongNumberOfArguments;
         }
-        const argument = try self.evaluate(list.elements.items[1]);
+        var argument = try self.evaluate(iter.next().?.payload);
         defer argument.deinit(self.allocator);
         const is_empty = switch (argument) {
-            .list => |inner| inner.elements.items.len == 0,
+            .list => |inner| inner.value == null,
             else => false,
         };
         return .{ .bool = is_empty };
     }
 
-    fn builtInAdd(self: *Evaluator, list: List) !Expression {
+    fn builtInAdd(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
         var int_sum: i64 = 0;
-        var idx: usize = 1;
-        for (list.elements.items[1..]) |summand_expression| {
-            const evaluated = try self.evaluate(summand_expression);
+        while (iter.peek()) |next| : (_ = iter.next()) {
+            const evaluated = try self.evaluate(next.payload);
             // NOTE: deinit for numbers is a nop, so this works
             //       even though we use the float again later
             defer evaluated.deinit(self.allocator);
@@ -217,16 +227,15 @@ const Evaluator = struct {
                 .float => break,
                 else => return error.ExpectedNumber,
             }
-            idx += 1;
         }
-        if (idx == list.elements.items.len) {
+        if (iter.hasLen(0)) {
             // All numbers were integers
             return .{ .int = int_sum };
         }
         // We stopped at a float
         var float_sum: f64 = @floatFromInt(int_sum);
-        for (list.elements.items[idx..]) |summand_expression| {
-            const evaluated = try self.evaluate(summand_expression);
+        while (iter.next()) |next| {
+            const evaluated = try self.evaluate(next.payload);
             defer evaluated.deinit(self.allocator);
             switch (evaluated) {
                 .int => |int| float_sum += @floatFromInt(int),
@@ -237,25 +246,26 @@ const Evaluator = struct {
         return .{ .float = float_sum };
     }
 
-    fn builtInSub(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len == 1) {
+    fn builtInSub(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLenAtLeast(1)) {
             return error.WrongNumberOfArguments;
         }
-        if (list.elements.items.len == 2) {
-            const argument = try self.evaluate(list.elements.items[1]);
-            defer argument.deinit(self.allocator);
-            return switch (argument) {
+
+        const first = try self.evaluate(iter.next().?.payload);
+        defer first.deinit(self.allocator);
+        if (iter.hasLen(0)) {
+            // Unary minus
+            return switch (first) {
                 .int => |int| .{ .int = -int },
                 .float => |float| .{ .float = -float },
                 else => return error.ExpectedNumber,
             };
         }
 
-        const first = try self.evaluate(list.elements.items[1]);
-        defer first.deinit(self.allocator);
         var int_sum: i64 = 0;
         var float_sum: f64 = 0.0;
-
         const is_int = switch (first) {
             .int => |int| blk: {
                 int_sum = int;
@@ -270,8 +280,8 @@ const Evaluator = struct {
         var idx: usize = 2;
 
         if (is_int) {
-            for (list.elements.items[idx..]) |summand_expression| {
-                const evaluated = try self.evaluate(summand_expression);
+            while (iter.peek()) |next| : (_ = iter.next()) {
+                const evaluated = try self.evaluate(next.payload);
                 // NOTE: deinit for numbers is a nop, so this works
                 //       even though we use the float again later
                 defer evaluated.deinit(self.allocator);
@@ -283,7 +293,7 @@ const Evaluator = struct {
                 idx += 1;
             }
 
-            if (idx == list.elements.items.len) {
+            if (iter.hasLen(0)) {
                 // All numbers were integers
                 return .{ .int = int_sum };
             }
@@ -291,8 +301,8 @@ const Evaluator = struct {
         }
 
         // We stopped at a float
-        for (list.elements.items[idx..]) |summand_expression| {
-            const evaluated = try self.evaluate(summand_expression);
+        while (iter.next()) |next| {
+            const evaluated = try self.evaluate(next.payload);
             defer evaluated.deinit(self.allocator);
             switch (evaluated) {
                 .int => |int| float_sum -= @floatFromInt(int),
@@ -303,11 +313,12 @@ const Evaluator = struct {
         return .{ .float = float_sum };
     }
 
-    fn builtInMul(self: *Evaluator, list: List) !Expression {
+    fn builtInMul(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
         var int_prod: i64 = 1;
-        var idx: usize = 1;
-        for (list.elements.items[1..]) |factor_expression| {
-            const evaluated = try self.evaluate(factor_expression);
+        while (iter.peek()) |next| : (_ = iter.next()) {
+            const evaluated = try self.evaluate(next.payload);
             // NOTE: deinit for numbers is a nop, so this works
             //       even though we use the float again later
             defer evaluated.deinit(self.allocator);
@@ -316,16 +327,15 @@ const Evaluator = struct {
                 .float => break,
                 else => return error.ExpectedNumber,
             }
-            idx += 1;
         }
-        if (idx == list.elements.items.len) {
+        if (iter.hasLen(0)) {
             // All numbers were integers
             return .{ .int = int_prod };
         }
         // We stopped at a float
         var float_prod: f64 = @floatFromInt(int_prod);
-        for (list.elements.items[idx..]) |factor_expression| {
-            const evaluated = try self.evaluate(factor_expression);
+        while (iter.next()) |next| {
+            const evaluated = try self.evaluate(next.payload);
             defer evaluated.deinit(self.allocator);
             switch (evaluated) {
                 .int => |int| float_prod *= @floatFromInt(int),
@@ -336,23 +346,25 @@ const Evaluator = struct {
         return .{ .float = float_prod };
     }
 
-    fn builtInDiv(self: *Evaluator, list: List) !Expression {
+    fn builtInDiv(self: *Evaluator, list: LinkedListWrapper) !Expression {
         _ = self;
         _ = list;
         return error.Todo;
     }
 
-    fn builtInGreater(self: *Evaluator, list: List) !Expression {
+    fn builtInGreater(self: *Evaluator, list: LinkedListWrapper) !Expression {
         _ = self;
         _ = list;
         return error.Todo;
     }
 
-    fn builtInZero(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len != 2) {
+    fn builtInZero(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
+        iter.advance(1);
+        if (!iter.hasLen(1)) {
             return error.WrongNumberOfArguments;
         }
-        var argument = try self.evaluate(list.elements.items[1]);
+        var argument = try self.evaluate(iter.next().?.payload);
         defer argument.deinit(self.allocator);
         const is_zero = switch (argument) {
             .int => |int| int == 0,
@@ -362,12 +374,13 @@ const Evaluator = struct {
         return .{ .bool = is_zero };
     }
 
-    fn call(self: *Evaluator, list: List) !Expression {
-        if (list.elements.items.len == 0) {
-            return error.MissingProcedure;
-        }
+    fn call(self: *Evaluator, list: LinkedListWrapper) !Expression {
+        var iter = list.iterator();
         // Obtain the lambda function to be called
-        const callee = try self.evaluate(list.elements.items[0]);
+        const callee = blk: {
+            const next = iter.next() orelse return error.MissingProcedure;
+            break :blk try self.evaluate(next.payload);
+        };
         defer callee.deinit(self.allocator);
         switch (callee) {
             .bool, .char, .int, .float, .string => return error.ExpectedCallable,
@@ -407,51 +420,52 @@ const Evaluator = struct {
             .list => |lambda_list| {
                 // Should be a lambda list
                 // Check the basic form of the lambda
+                var lambda_iter = lambda_list.iterator();
                 // Lambda is a list with at least three elements
-                if (lambda_list.elements.items.len < 3) {
+                if (!lambda_iter.hasLenAtLeast(3)) {
                     return error.ExpectedCallable;
                 }
                 // First element is keyword "lambda"
-                const isLambda = switch (lambda_list.elements.items[0]) {
+                const is_lambda = switch (lambda_iter.next().?.payload) {
                     .ident => |ident| std.mem.eql(u8, ident, "lambda"),
                     else => false,
                 };
-                if (!isLambda) {
+                if (!is_lambda) {
                     return error.ExpectedCallable;
                 }
             },
         }
-        const parameter_list = switch (callee.list.elements.items[1]) {
+        var callee_iter = callee.list.iterator();
+        callee_iter.advance(1);
+        const parameter_list = switch (callee_iter.next().?.payload) {
             .list => |param_list| param_list,
             else => return error.MalformedLambda,
         };
         // TODO: Default arguments?
-        if (parameter_list.elements.items.len + 1 != list.elements.items.len) {
-            return error.WrongNumberOfArguments;
-        }
+
         // Populate environment
         try self.environment.pushFrame(self.allocator);
         // We must be in a valid state since we just pushed a frame
         defer self.environment.popAndDeinitFrame(self.allocator) catch unreachable;
-        for (list.elements.items[1..], parameter_list.elements.items) |argument, parameter| {
-            // Evaluate function arguments eagerly
-            const argument_evaluated = try self.evaluate(argument);
-            errdefer argument_evaluated.deinit(self.allocator);
-            const parameter_ident = switch (parameter) {
+
+        var pair_iter = PairIter(LinkedListIterator, LinkedListIterator){ .iter1 = iter, .iter2 = parameter_list.iterator() };
+        while (pair_iter.next() catch return error.WrongNumberOfArguments) |next| {
+            const argument = try self.evaluate(next.@"0".payload);
+            errdefer argument.deinit(self.allocator);
+            const parameter_ident = switch (next.@"1".payload) {
                 .ident => |param_ident| param_ident,
                 else => return error.MalformedLambda,
             };
-            try self.environment.mapSymbol(self.allocator, try self.allocator.dupe(u8, parameter_ident), argument_evaluated);
+            try self.environment.mapSymbol(self.allocator, try self.allocator.dupe(u8, parameter_ident), argument);
         }
         // Evaluate the body
         var maybe_return_expression: ?Expression = null;
-        const num_body_expressions = callee.list.elements.items.len - 2;
-        for (callee.list.elements.items[2..], 0..) |body_expression, idx| {
-            const expr = try self.evaluate(body_expression);
-            if (idx + 1 == num_body_expressions) {
-                maybe_return_expression = expr;
-            } else {
+        while (callee_iter.next()) |next| {
+            const expr = try self.evaluate(next.payload);
+            if (callee_iter.hasLenAtLeast(1)) {
                 expr.deinit(self.allocator);
+            } else {
+                maybe_return_expression = expr;
             }
         }
         const return_expression = maybe_return_expression orelse unreachable;

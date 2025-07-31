@@ -2,40 +2,171 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Tokenizer = @import("Tokenizer.zig");
 
-pub const List = struct {
-    elements: std.ArrayList(Expression),
+const LinkedList = struct {
+    payload: Expression,
+    next: ?*LinkedList,
+};
 
-    pub fn deinit(self: List, allocator: Allocator) void {
-        for (self.elements.items) |element| {
-            element.deinit(allocator);
+pub const LinkedListWrapper = struct {
+    value: ?*LinkedList,
+
+    pub fn deinit(self: LinkedListWrapper, allocator: Allocator) void {
+        var iter = self.iterator();
+        while (iter.next()) |next| {
+            next.payload.deinit(allocator);
+            allocator.destroy(next);
         }
-        self.elements.deinit();
     }
 
-    pub fn dupe(self: List, allocator: Allocator) Allocator.Error!List {
-        var elements = std.ArrayList(Expression).init(allocator);
+    pub fn dupe(self: LinkedListWrapper, allocator: Allocator) Allocator.Error!LinkedListWrapper {
+        var list: ?*LinkedList = null;
+        var curr = list;
         errdefer {
-            for (elements.items) |element| {
-                element.deinit(allocator);
+            const wrapper = LinkedListWrapper{ .value = list };
+            wrapper.deinit(allocator);
+        }
+        var iter = self.iterator();
+        while (iter.next()) |next| {
+            const element = try next.payload.dupe(allocator);
+            errdefer element.deinit(allocator);
+            const new_node = try allocator.create(LinkedList);
+            new_node.* = LinkedList{ .payload = element, .next = null };
+            if (curr) |l| {
+                l.next = new_node;
+                curr = new_node;
+            } else {
+                list = new_node;
+                curr = new_node;
             }
-            elements.deinit();
         }
-        for (self.elements.items) |element| {
-            const duped_element = try element.dupe(allocator);
-            errdefer duped_element.deinit(allocator);
-            try elements.append(duped_element);
-        }
-        return .{ .elements = elements };
+        return .{ .value = list };
     }
 
-    pub fn debugPrint(self: List) void {
+    pub fn debugPrint(self: LinkedListWrapper) void {
         std.debug.print("(", .{});
-        for (self.elements.items) |element| {
-            element.debugPrint();
+        var iter = self.iterator();
+        while (iter.next()) |next| {
+            next.payload.debugPrint();
         }
         std.debug.print(") ", .{});
     }
+
+    pub fn iterator(self: LinkedListWrapper) LinkedListIterator {
+        return .{ .curr = self.value };
+    }
+
+    pub fn removeFirst(self: *LinkedListWrapper, allocator: Allocator) ?Expression {
+        const first = self.value orelse return null;
+        defer allocator.destroy(first);
+        self.value = first.next;
+        return first.payload;
+    }
 };
+
+pub const LinkedListIterator = struct {
+    const Item = *LinkedList;
+
+    curr: ?*LinkedList,
+
+    pub fn peek(self: LinkedListIterator) ?*LinkedList {
+        return self.curr;
+    }
+
+    pub fn next(self: *LinkedListIterator) ?*LinkedList {
+        defer if (self.curr) |curr| {
+            self.curr = curr.next;
+        };
+        return self.curr;
+    }
+
+    pub fn len(self: *LinkedListIterator) usize {
+        // Reset when we are finished
+        const start = self.curr;
+        defer self.curr = start;
+        var size: usize = 0;
+        while (self.next()) |_| {
+            size += 1;
+        }
+        return size;
+    }
+
+    pub fn hasLen(self: *LinkedListIterator, n: usize) bool {
+        if (n == 0) {
+            // Edge case
+            return self.curr == null;
+        }
+        // Reset when we are finished
+        const start = self.curr;
+        defer self.curr = start;
+        var size: usize = 0;
+        while (self.next()) |_| {
+            size += 1;
+            if (size == n) {
+                break;
+            }
+        }
+        return self.curr == null;
+    }
+
+    pub fn hasLenAtLeast(self: *LinkedListIterator, n: usize) bool {
+        if (n == 0) {
+            // Degenerate edge case
+            return true;
+        }
+        // Reset when we are finished
+        const start = self.curr;
+        defer self.curr = start;
+        var size: usize = 0;
+        while (self.next()) |_| {
+            size += 1;
+            if (size >= n) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn advance(self: *LinkedListIterator, n: usize) void {
+        for (0..n) |_| {
+            _ = self.next();
+        }
+    }
+};
+
+pub fn PairIter(comptime Iter1: type, comptime Iter2: type) type {
+    const Pair = struct {
+        @"0": Iter1.Item,
+        @"1": Iter2.Item,
+    };
+    const E = error{
+        LeftIteratorExhausted,
+        RightIteratorExhausted,
+    };
+    return struct {
+        const I = @This();
+
+        iter1: Iter1,
+        iter2: Iter2,
+
+        pub fn next(self: *I) E!?Pair {
+            const maybe_next1 = self.iter1.next();
+            const maybe_next2 = self.iter2.next();
+            if (maybe_next1) |next1| {
+                if (maybe_next2) |next2| {
+                    return .{ .@"0" = next1, .@"1" = next2 };
+                } else {
+                    return E.RightIteratorExhausted;
+                }
+            } else {
+                if (maybe_next2) |_| {
+                    return E.LeftIteratorExhausted;
+                } else {
+                    return null;
+                }
+            }
+        }
+    };
+}
 
 pub const Expression = union(enum) {
     bool: bool,
@@ -44,7 +175,7 @@ pub const Expression = union(enum) {
     char: u8,
     string: []const u8,
     ident: []const u8,
-    list: List,
+    list: LinkedListWrapper,
 
     pub fn deinit(self: Expression, allocator: Allocator) void {
         switch (self) {
@@ -93,13 +224,12 @@ pub fn init(allocator: Allocator, source: []const u8) Self {
     };
 }
 
-fn parseList(self: *Self) (Allocator.Error || Tokenizer.Error || Error)!List {
-    var elements = std.ArrayList(Expression).init(self.allocator);
+fn parseList(self: *Self) (Allocator.Error || Tokenizer.Error || Error)!LinkedListWrapper {
+    var list: ?*LinkedList = null;
+    var curr = list;
     errdefer {
-        for (elements.items) |element| {
-            element.deinit(self.allocator);
-        }
-        elements.deinit();
+        const wrapper = LinkedListWrapper{ .value = list };
+        wrapper.deinit(self.allocator);
     }
     while (true) {
         const element = if (self.parseExpression()) |expression|
@@ -108,9 +238,17 @@ fn parseList(self: *Self) (Allocator.Error || Tokenizer.Error || Error)!List {
             error.UnexpectedRparen => break,
             else => |leftover_err| return leftover_err,
         };
-        try elements.append(element);
+        const new_node = try self.allocator.create(LinkedList);
+        new_node.* = LinkedList{ .payload = element, .next = null };
+        if (curr) |l| {
+            l.next = new_node;
+            curr = new_node;
+        } else {
+            list = new_node;
+            curr = new_node;
+        }
     }
-    return .{ .elements = elements };
+    return .{ .value = list };
 }
 
 pub fn parseExpression(self: *Self) (Allocator.Error || Tokenizer.Error || Error)!?Expression {
@@ -160,27 +298,28 @@ test "parse complicated" {
     defer expression.deinit(allocator);
     switch (expression) {
         .list => |list| {
-            try expect(list.elements.items.len == 5);
-            try expect(switch (list.elements.items[0]) {
+            var iter = list.iterator();
+            try expect(switch (iter.next().?.payload) {
                 .string => |string| std.mem.eql(u8, string, "hello"),
                 else => false,
             });
-            try expect(switch (list.elements.items[1]) {
+            try expect(switch (iter.next().?.payload) {
                 .int => |int| int == 42,
                 else => false,
             });
-            try expect(switch (list.elements.items[2]) {
-                .list => |inner| inner.elements.items.len == 0,
+            try expect(switch (iter.next().?.payload) {
+                .list => |inner| inner.value == null,
                 else => false,
             });
-            try expect(switch (list.elements.items[3]) {
+            try expect(switch (iter.next().?.payload) {
                 .char => |char| char == 'c',
                 else => false,
             });
-            try expect(switch (list.elements.items[4]) {
+            try expect(switch (iter.next().?.payload) {
                 .float => |float| float == 3.14,
                 else => false,
             });
+            try expect(iter.next() == null);
         },
         else => return error.ExpectedList,
     }
