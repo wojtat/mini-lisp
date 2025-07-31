@@ -1,11 +1,12 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const Tokenizer = @import("Tokenizer.zig");
 const Parser = @import("Parser.zig");
 const Expression = Parser.Expression;
-const LinkedListWrapper = Parser.LinkedListWrapper;
-const PairIter = Parser.PairIter;
-const LinkedListIterator = Parser.LinkedListIterator;
-const Allocator = std.mem.Allocator;
+const LinkedList = @import("LinkedList.zig");
+const LinkedListWrapper = LinkedList.Wrapper;
+const PairIter = LinkedList.PairIter;
+const LinkedListIterator = LinkedList.Iterator;
 
 const VariableEnvironment = struct {
     const SymbolValue = struct {
