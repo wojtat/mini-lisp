@@ -284,6 +284,26 @@ fn expectFloat(allocator: Allocator, token: ?Token, expected_float: f64) !void {
     }
 }
 
+fn expectBool(allocator: Allocator, token: ?Token, expected_bool: bool) !void {
+    defer {
+        if (token) |tok| {
+            tok.deinit(allocator);
+        }
+    }
+    if (token) |tok| {
+        return switch (tok) {
+            .bool => |b| {
+                if (b != expected_bool) {
+                    return error.WrongBool;
+                }
+            },
+            else => error.WrongToken,
+        };
+    } else {
+        return error.NoToken;
+    }
+}
+
 fn expectIdent(allocator: Allocator, token: ?Token, expected_ident: []const u8) !void {
     defer {
         if (token) |tok| {
@@ -379,6 +399,21 @@ test "numbers" {
     try expectFloat(allocator, try tokenizer.next(allocator), 20.0);
     try expectFloat(allocator, try tokenizer.next(allocator), 0.001);
     try expectChar(allocator, try tokenizer.next(allocator), 'c');
+    try expectNoToken(allocator, try tokenizer.next(allocator));
+}
+
+test "booleans" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\ true false False truer :false
+    ;
+    var tokenizer = Self.init(source);
+
+    try expectBool(allocator, try tokenizer.next(allocator), true);
+    try expectBool(allocator, try tokenizer.next(allocator), false);
+    try expectIdent(allocator, try tokenizer.next(allocator), "False");
+    try expectIdent(allocator, try tokenizer.next(allocator), "truer");
+    try expectIdent(allocator, try tokenizer.next(allocator), ":false");
     try expectNoToken(allocator, try tokenizer.next(allocator));
 }
 
