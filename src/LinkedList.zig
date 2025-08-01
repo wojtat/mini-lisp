@@ -62,6 +62,12 @@ pub const Wrapper = struct {
         return .{ .curr = self.value };
     }
 
+    pub fn prepend(self: *Wrapper, allocator: Allocator, payload: Expression) !void {
+        const new_node = try allocator.create(Self);
+        new_node.* = Self{ .payload = payload, .next = self.value };
+        self.value = new_node;
+    }
+
     pub fn removeFirst(self: *Wrapper, allocator: Allocator) ?Expression {
         const first = self.value orelse return null;
         defer allocator.destroy(first);

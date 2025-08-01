@@ -196,9 +196,23 @@ fn builtInCdr(self: *Self, list: LinkedListWrapper) !Expression {
 }
 
 fn builtInCons(self: *Self, list: LinkedListWrapper) !Expression {
-    _ = self;
-    _ = list;
-    return error.Todo;
+    var iter = list.iterator();
+    iter.advance(1);
+    if (!iter.hasLen(2)) {
+        return error.WrongNumberOfArguments;
+    }
+    const left = try self.evaluate(iter.next().?.payload);
+    errdefer left.deinit(self.allocator);
+    var right = try self.evaluate(iter.next().?.payload);
+    errdefer right.deinit(self.allocator);
+    switch (right) {
+        // TODO: Maybe support arbitrary pairs?
+        .list => |*inner| {
+            try inner.prepend(self.allocator, left);
+        },
+        else => return error.ExpectedList,
+    }
+    return right;
 }
 
 fn builtInEmpty(self: *Self, list: LinkedListWrapper) !Expression {
