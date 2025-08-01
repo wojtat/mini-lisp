@@ -25,6 +25,7 @@ const Token = union(enum) {
 pub const Error = error{
     UnmatchedDoubleQuote,
     UnmatchedSingleQuote,
+    InvalidEscape,
     InvalidToken,
 };
 
@@ -62,10 +63,42 @@ fn isIdentChar(c: u8) bool {
     };
 }
 
-fn tokenizeChar(self: *Self) Error!u8 {
-    // TODO: Escaping
+fn charToEscape(char: u8) ?u8 {
+    return switch (char) {
+        '0' => 0,
+        'n' => '\n',
+        'r' => '\r',
+        't' => '\t',
+        '\'' => '\'',
+        '\"' => '\"',
+        else => null,
+    };
+}
+
+fn handleEscape(self: *Self) Error!u8 {
     self.idx += 1;
-    const char = self.source[self.idx];
+    const next_char = self.peekChar() orelse return error.InvalidEscape;
+    if (charToEscape(next_char)) |escaped| {
+        // It's a simple character escape
+        return escaped;
+    } else {
+        // It must be a byte escape
+        if (next_char != 'x') {
+            return error.InvalidEscape;
+        }
+        self.idx += 1;
+        const escaped_or_err = std.fmt.parseInt(u8, self.source[self.idx .. self.idx + 2], 16);
+        self.idx += 1;
+        return escaped_or_err catch return error.InvalidEscape;
+    }
+}
+
+fn tokenizeChar(self: *Self) Error!u8 {
+    self.idx += 1;
+    var char = self.source[self.idx];
+    if (char == '\\') {
+        char = try self.handleEscape();
+    }
     self.idx += 1;
     if (self.peekChar()) |c| {
         if (c != '\'') {
@@ -78,20 +111,24 @@ fn tokenizeChar(self: *Self) Error!u8 {
 }
 
 fn tokenizeString(self: *Self, allocator: Allocator, advance_by: *usize) (Allocator.Error || Error)![]u8 {
-    // TODO: Escaping
     self.idx += 1;
-    var size: usize = 0;
-    for (self.source[self.idx..]) |c| {
+    var string = std.ArrayList(u8).init(allocator);
+    errdefer string.deinit();
+    while (self.peekChar()) |c| : (self.idx += 1) {
         if (c == '"') {
             break;
         }
-        size += 1;
+        var char = c;
+        if (c == '\\') {
+            char = try self.handleEscape();
+        }
+        try string.append(char);
     } else {
         // We reached the end of the source, but no end of string was found
         return error.UnmatchedDoubleQuote;
     }
-    advance_by.* = size + 1;
-    return allocator.dupe(u8, self.source[self.idx .. self.idx + size]);
+    advance_by.* = 1;
+    return string.toOwnedSlice();
 }
 
 fn tokenizeIdent(self: *Self, allocator: Allocator, advance_by: *usize) (Allocator.Error || Error)!Token {
@@ -328,7 +365,7 @@ test "parentheses" {
     try expectNoToken(allocator, try tokenizer.next(allocator));
 }
 
-test "ints" {
+test "numbers" {
     const allocator = std.testing.allocator;
     const source =
         \\ 0 10 0.0 4.2 20.0 0.001 'c' 
@@ -357,6 +394,24 @@ test "idents" {
     try expectLparen(allocator, try tokenizer.next(allocator));
     try expectIdent(allocator, try tokenizer.next(allocator), "hello");
     try expectIdent(allocator, try tokenizer.next(allocator), "world");
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectRparen(allocator, try tokenizer.next(allocator));
+    try expectNoToken(allocator, try tokenizer.next(allocator));
+}
+
+test "escaping" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\("A\n" ("\rhello" "wor\x20ld" '\"') )
+    ;
+    var tokenizer = Self.init(source);
+
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectString(allocator, try tokenizer.next(allocator), "A\n");
+    try expectLparen(allocator, try tokenizer.next(allocator));
+    try expectString(allocator, try tokenizer.next(allocator), "\rhello");
+    try expectString(allocator, try tokenizer.next(allocator), "wor ld");
+    try expectChar(allocator, try tokenizer.next(allocator), '"');
     try expectRparen(allocator, try tokenizer.next(allocator));
     try expectRparen(allocator, try tokenizer.next(allocator));
     try expectNoToken(allocator, try tokenizer.next(allocator));
