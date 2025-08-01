@@ -184,7 +184,9 @@ fn builtInCdr(self: *Self, list: LinkedListWrapper) !Expression {
     errdefer argument.deinit(self.allocator);
     switch (argument) {
         .list => |*inner| {
-            if (inner.removeFirst(self.allocator) == null) {
+            if (inner.removeFirst(self.allocator)) |first| {
+                first.deinit(self.allocator);
+            } else {
                 return error.ExpectedCons;
             }
         },
