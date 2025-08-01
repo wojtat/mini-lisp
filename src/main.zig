@@ -17,14 +17,12 @@ fn parseAndEvaluateAll(allocator: Allocator, evaluator: *Evaluator, source: []co
     var parser = Parser.init(allocator, source);
     while (try parser.parseExpression()) |expression| {
         defer expression.deinit(allocator);
-        // TODO: Write to stdout, not stderr
         _ = try writer.write("Expression: ");
         try expression.write(writer);
         try writer.writeByte('\n');
 
         const evaluated = try evaluator.evaluate(expression);
         defer evaluated.deinit(allocator);
-        // TODO: Write to stdout, not stderr
         _ = try writer.write("Evaluates to: ");
         try evaluated.write(writer);
         try writer.writeByte('\n');
