@@ -354,9 +354,61 @@ fn builtInDiv(self: *Self, list: LinkedListWrapper) !Expression {
 }
 
 fn builtInGreater(self: *Self, list: LinkedListWrapper) !Expression {
-    _ = self;
-    _ = list;
-    return error.Todo;
+    var iter = list.iterator();
+    iter.advance(1);
+    if (!iter.hasLenAtLeast(1)) {
+        return error.WrongNumberOfArguments;
+    }
+    var last_is_int = true;
+    var last_float: f64 = 0;
+    var last_int: i64 = 0;
+    const first = try self.evaluate(iter.next().?.payload);
+    defer first.deinit(self.allocator);
+    switch (first) {
+        .int => |int| {
+            last_int = int;
+            last_is_int = true;
+        },
+        .float => |float| {
+            last_float = float;
+            last_is_int = false;
+        },
+        else => return error.ExpectedNumber,
+    }
+    while (iter.next()) |next| {
+        const arg = try self.evaluate(next.payload);
+        defer arg.deinit(self.allocator);
+        switch (arg) {
+            .int => |int| {
+                if (last_is_int) {
+                    if (last_int <= int) {
+                        return .{ .bool = false };
+                    }
+                } else {
+                    if (last_float <= @as(f64, @floatFromInt(int))) {
+                        return .{ .bool = false };
+                    }
+                }
+                last_int = int;
+                last_is_int = true;
+            },
+            .float => |float| {
+                if (last_is_int) {
+                    if (@as(f64, @floatFromInt(last_int)) <= float) {
+                        return .{ .bool = false };
+                    }
+                } else {
+                    if (last_float <= float) {
+                        return .{ .bool = false };
+                    }
+                }
+                last_float = float;
+                last_is_int = false;
+            },
+            else => return error.ExpectedNumber,
+        }
+    }
+    return .{ .bool = true };
 }
 
 fn builtInZero(self: *Self, list: LinkedListWrapper) !Expression {
