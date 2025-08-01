@@ -13,21 +13,21 @@ fn readEntireFile(allocator: Allocator, relative_path: [:0]const u8) ![]u8 {
     return buffer;
 }
 
-fn parseAndEvaluateAll(allocator: Allocator, evaluator: *Evaluator, source: []const u8) !void {
+fn parseAndEvaluateAll(allocator: Allocator, evaluator: *Evaluator, source: []const u8, writer: anytype) !void {
     var parser = Parser.init(allocator, source);
     while (try parser.parseExpression()) |expression| {
         defer expression.deinit(allocator);
         // TODO: Write to stdout, not stderr
-        std.debug.print("Expression: ", .{});
-        expression.debugPrint();
-        std.debug.print("\n", .{});
+        _ = try writer.write("Expression: ");
+        try expression.write(writer);
+        try writer.writeByte('\n');
 
         const evaluated = try evaluator.evaluate(expression);
         defer evaluated.deinit(allocator);
         // TODO: Write to stdout, not stderr
-        std.debug.print("Evaluates to: ", .{});
-        evaluated.debugPrint();
-        std.debug.print("\n", .{});
+        _ = try writer.write("Evaluates to: ");
+        try evaluated.write(writer);
+        try writer.writeByte('\n');
     }
 }
 
@@ -42,12 +42,14 @@ pub fn main() !void {
     var evaluator = try Evaluator.init(allocator);
     defer evaluator.deinit();
 
+    const stdout = std.io.getStdOut().writer();
+
     var args_iter = std.process.args();
     _ = args_iter.skip();
     while (args_iter.next()) |arg| {
         const contents = try readEntireFile(allocator, arg);
         defer allocator.free(contents);
 
-        try parseAndEvaluateAll(allocator, &evaluator, contents);
+        try parseAndEvaluateAll(allocator, &evaluator, contents, stdout);
     }
 }

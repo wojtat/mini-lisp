@@ -43,13 +43,19 @@ pub const Wrapper = struct {
         return .{ .value = list };
     }
 
-    pub fn debugPrint(self: Wrapper) void {
-        std.debug.print("(", .{});
+    pub fn write(self: Wrapper, writer: anytype) anyerror!void {
+        try writer.writeByte('(');
         var iter = self.iterator();
+        var first_iteration = true;
         while (iter.next()) |next| {
-            next.payload.debugPrint();
+            if (first_iteration) {
+                first_iteration = false;
+            } else {
+                try writer.writeByte(' ');
+            }
+            try next.payload.write(writer);
         }
-        std.debug.print(") ", .{});
+        try writer.writeByte(')');
     }
 
     pub fn iterator(self: Wrapper) Iterator {

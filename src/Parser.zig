@@ -31,18 +31,16 @@ pub const Expression = union(enum) {
         };
     }
 
-    pub fn debugPrint(self: Expression) void {
-        switch (self) {
-            .bool => |b| std.debug.print("{s} ", .{if (b) "true" else "false"}),
-            .int => |int| std.debug.print("{d} ", .{int}),
-            .float => |float| std.debug.print("{d} ", .{float}),
-            .char => |char| std.debug.print("{c} ", .{char}),
-            .string => |string| std.debug.print("\"{s}\" ", .{string}),
-            .ident => |ident| std.debug.print("{s} ", .{ident}),
-            .list => |list| {
-                list.debugPrint();
-            },
-        }
+    pub fn write(self: Expression, writer: anytype) !void {
+        return switch (self) {
+            .bool => |b| std.fmt.format(writer, "{s}", .{if (b) "true" else "false"}),
+            .int => |int| std.fmt.format(writer, "{d}", .{int}),
+            .float => |float| std.fmt.format(writer, "{d}", .{float}),
+            .char => |char| std.fmt.format(writer, "\'{c}\'", .{char}),
+            .string => |string| std.fmt.format(writer, "\"{s}\"", .{string}),
+            .ident => |ident| std.fmt.format(writer, "{s}", .{ident}),
+            .list => |list| list.write(writer),
+        };
     }
 };
 
