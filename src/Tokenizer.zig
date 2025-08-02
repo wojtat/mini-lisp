@@ -43,12 +43,19 @@ fn peekChar(self: *Self) ?u8 {
     return if (self.bytesLeft() == 0) null else self.source[self.idx];
 }
 
-fn skipWhitespace(self: *Self) void {
-    for (self.source[self.idx..]) |c| {
+fn skipWhitespaceAndComments(self: *Self) void {
+    while (self.peekChar()) |c| : (self.idx += 1) {
         if (!std.ascii.isWhitespace(c)) {
-            break;
+            if (c != ';') {
+                break;
+            }
+            self.idx += 1;
+            while (self.peekChar()) |v| : (self.idx += 1) {
+                if (v == '\n') {
+                    break;
+                }
+            }
         }
-        self.idx += 1;
     }
 }
 
@@ -58,7 +65,7 @@ fn bytesLeft(self: *const Self) usize {
 
 fn isIdentChar(c: u8) bool {
     return switch (c) {
-        '!', '#'...'&', '*'...'~' => true,
+        '!', '#'...'&', '*'...':', '<'...'~' => true,
         else => false,
     };
 }
@@ -150,7 +157,7 @@ fn tokenizeIdent(self: *Self, allocator: Allocator, advance_by: *usize) (Allocat
 }
 
 pub fn next(self: *Self, allocator: Allocator) (Allocator.Error || Error)!?Token {
-    self.skipWhitespace();
+    self.skipWhitespaceAndComments();
 
     var advance_by: usize = 1;
     const token: Token = switch (self.peekChar() orelse return null) {
@@ -158,7 +165,8 @@ pub fn next(self: *Self, allocator: Allocator) (Allocator.Error || Error)!?Token
         ')' => .{ .rparen = {} },
         '\'' => .{ .char = try self.tokenizeChar() },
         '"' => .{ .string = try self.tokenizeString(allocator, &advance_by) },
-        '!', '#'...'&', '*', '+', ',', '-', '.', '/', ':'...'~' => try self.tokenizeIdent(allocator, &advance_by),
+        ';' => unreachable,
+        '!', '#'...'&', '*', '+', ',', '-', '.', '/', ':', '<'...'~' => try self.tokenizeIdent(allocator, &advance_by),
         '0'...'9' => blk: {
             // TODO: Handle other bases and decimal numbers
             var number: i64 = 0;
