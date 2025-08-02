@@ -294,7 +294,6 @@ fn builtInSub(self: *Self, list: LinkedListWrapper) !Expression {
         },
         else => return error.ExpectedNumber,
     };
-    var idx: usize = 2;
 
     if (is_int) {
         while (iter.peek()) |next| : (_ = iter.next()) {
@@ -307,7 +306,6 @@ fn builtInSub(self: *Self, list: LinkedListWrapper) !Expression {
                 .float => break,
                 else => return error.ExpectedNumber,
             }
-            idx += 1;
         }
 
         if (iter.hasLen(0)) {
@@ -364,9 +362,40 @@ fn builtInMul(self: *Self, list: LinkedListWrapper) !Expression {
 }
 
 fn builtInDiv(self: *Self, list: LinkedListWrapper) !Expression {
-    _ = self;
-    _ = list;
-    return error.Todo;
+    var iter = list.iterator();
+    iter.advance(1);
+    if (!iter.hasLenAtLeast(1)) {
+        return error.WrongNumberOfArguments;
+    }
+
+    const first = try self.evaluate(iter.next().?.payload);
+    defer first.deinit(self.allocator);
+    if (iter.hasLen(0)) {
+        // Unary divide
+        return switch (first) {
+            .int => |int| .{ .float = 1 / @as(f64, @floatFromInt(int)) },
+            .float => |float| .{ .float = 1 / float },
+            else => return error.ExpectedNumber,
+        };
+    }
+
+    var float_quotient: f64 = 0.0;
+    switch (first) {
+        .int => |int| float_quotient = @floatFromInt(int),
+        .float => |float| float_quotient = float,
+        else => return error.ExpectedNumber,
+    }
+
+    while (iter.next()) |next| {
+        const evaluated = try self.evaluate(next.payload);
+        defer evaluated.deinit(self.allocator);
+        switch (evaluated) {
+            .int => |int| float_quotient /= @floatFromInt(int),
+            .float => |float| float_quotient /= float,
+            else => return error.ExpectedNumber,
+        }
+    }
+    return .{ .float = float_quotient };
 }
 
 fn builtInGreater(self: *Self, list: LinkedListWrapper) !Expression {
