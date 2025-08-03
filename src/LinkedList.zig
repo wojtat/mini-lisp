@@ -111,11 +111,9 @@ pub const Iterator = struct {
         // Reset when we are finished
         const start = self.curr;
         defer self.curr = start;
-        var size: usize = 0;
-        while (self.next()) |_| {
-            size += 1;
-            if (size == n) {
-                break;
+        for (0..n) |_| {
+            if (self.next() == null) {
+                return false;
             }
         }
         return self.curr == null;
@@ -129,14 +127,12 @@ pub const Iterator = struct {
         // Reset when we are finished
         const start = self.curr;
         defer self.curr = start;
-        var size: usize = 0;
-        while (self.next()) |_| {
-            size += 1;
-            if (size >= n) {
-                return true;
+        for (0..n) |_| {
+            if (self.next() == null) {
+                return false;
             }
         }
-        return false;
+        return true;
     }
 
     pub fn advance(self: *Iterator, n: usize) void {

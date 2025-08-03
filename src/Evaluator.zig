@@ -164,10 +164,16 @@ fn builtInCar(self: *Self, list: LinkedListWrapper) !Expression {
     }
     var argument = try self.evaluate(iter.next().?.payload);
     defer argument.deinit(self.allocator);
-    const car = switch (argument) {
+    const car: Expression = switch (argument) {
         .list => |*inner| blk: {
             const value = inner.removeFirst(self.allocator) orelse return error.ExpectedCons;
             break :blk value;
+        },
+        .string => |string| blk: {
+            if (string.len == 0) {
+                return error.ExpectedCons;
+            }
+            break :blk .{ .char = string[0] };
         },
         else => return error.ExpectedCons,
     };
@@ -190,6 +196,15 @@ fn builtInCdr(self: *Self, list: LinkedListWrapper) !Expression {
                 return error.ExpectedCons;
             }
         },
+        .string => |*string| {
+            if (string.len == 0) {
+                return error.ExpectedCons;
+            }
+            const new = try self.allocator.alloc(u8, string.len - 1);
+            @memcpy(new, string.*[1..]);
+            self.allocator.free(string.*);
+            string.* = new;
+        },
         else => return error.ExpectedCons,
     }
     return argument;
@@ -209,6 +224,17 @@ fn builtInCons(self: *Self, list: LinkedListWrapper) !Expression {
         // TODO: Maybe support arbitrary pairs?
         .list => |*inner| {
             try inner.prepend(self.allocator, left);
+        },
+        .string => |*string| {
+            const left_char = switch (left) {
+                .char => |char| char,
+                else => return error.ExpectedChar,
+            };
+            const new = try self.allocator.alloc(u8, string.len + 1);
+            new[0] = left_char;
+            @memcpy(new[1..], string.*);
+            self.allocator.free(string.*);
+            string.* = new;
         },
         else => return error.ExpectedList,
     }
