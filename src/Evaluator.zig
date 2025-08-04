@@ -572,6 +572,14 @@ fn call(self: *Self, list: LinkedListWrapper) !Expression {
     // We must be in a valid state since we just pushed a frame
     defer self.environment.popAndDeinitFrame(self.allocator) catch unreachable;
 
+    var param_to_argument = std.StringHashMapUnmanaged(Expression){};
+    defer {
+        var param_to_arg_iter = param_to_argument.iterator();
+        while (param_to_arg_iter.next()) |entry| {
+            entry.value_ptr.deinit(self.allocator);
+        }
+        param_to_argument.deinit(self.allocator);
+    }
     var pair_iter = PairIter(LinkedListIterator, LinkedListIterator){ .iter1 = iter, .iter2 = parameter_list.iterator() };
     while (pair_iter.next() catch return error.WrongNumberOfArguments) |next| {
         const argument = try self.evaluate(next.@"0".payload);
@@ -580,12 +588,16 @@ fn call(self: *Self, list: LinkedListWrapper) !Expression {
             .ident => |param_ident| param_ident,
             else => return error.MalformedLambda,
         };
-        try self.environment.mapSymbol(self.allocator, try self.allocator.dupe(u8, parameter_ident), argument);
+        try param_to_argument.put(self.allocator, parameter_ident, argument);
     }
+
     // Evaluate the body
     var maybe_return_expression: ?Expression = null;
     while (callee_iter.next()) |next| {
-        const expr = try self.evaluate(next.payload);
+        // Replace the parameter with the argument in the whole body of the lambda
+        var body_expr = next.payload;
+        try body_expr.bindSymbol(self.allocator, param_to_argument);
+        const expr = try self.evaluate(body_expr);
         if (callee_iter.hasLenAtLeast(1)) {
             expr.deinit(self.allocator);
         } else {

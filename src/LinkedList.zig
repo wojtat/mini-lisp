@@ -58,6 +58,19 @@ pub const Wrapper = struct {
         try writer.writeByte(')');
     }
 
+    pub fn bindSymbol(self: *Wrapper, allocator: Allocator, param_to_arg: std.StringHashMapUnmanaged(Expression)) !void {
+        var iter = self.iterator();
+        while (iter.next()) |next| {
+            switch (next.payload) {
+                .ident => |ident| if (std.mem.eql(u8, ident, "quote")) {
+                    break;
+                },
+                else => {},
+            }
+            try next.payload.bindSymbol(allocator, param_to_arg);
+        }
+    }
+
     pub fn iterator(self: Wrapper) Iterator {
         return .{ .curr = self.value };
     }

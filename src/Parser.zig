@@ -42,6 +42,35 @@ pub const Expression = union(enum) {
             .list => |list| list.write(writer),
         };
     }
+
+    pub fn bindSymbol(self: *Expression, allocator: Allocator, param_to_arg: std.StringHashMapUnmanaged(Expression)) Allocator.Error!void {
+        switch (self.*) {
+            .bool, .int, .float, .char, .string => {},
+            .ident => |ident| {
+                if (param_to_arg.get(ident)) |value| {
+                    // Create a quoted version of the expression
+                    var ll = LinkedListWrapper{ .value = null };
+                    errdefer ll.deinit(allocator);
+                    const replace_by = try value.dupe(allocator);
+                    ll.prepend(allocator, replace_by) catch |err| {
+                        replace_by.deinit(allocator);
+                        return err;
+                    };
+                    const quote = Expression{ .ident = try allocator.dupe(u8, "quote") };
+                    ll.prepend(allocator, quote) catch |err| {
+                        quote.deinit(allocator);
+                        return err;
+                    };
+
+                    self.* = Expression{ .list = ll };
+                    allocator.free(ident);
+                }
+            },
+            .list => |*list| {
+                try list.bindSymbol(allocator, param_to_arg);
+            },
+        }
+    }
 };
 
 const Error = error{ UnexpectedEndOfInput, UnexpectedRparen };
