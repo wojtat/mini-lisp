@@ -81,6 +81,7 @@ pub fn init(allocator: Allocator) !Self {
         "cdr",
         "cons",
         "empty?",
+        "list",
         "zero?",
         "+",
         "-",
@@ -275,6 +276,13 @@ fn builtInEmpty(self: *Self, list: LinkedListWrapper) !Expression {
         else => false,
     };
     return .{ .bool = is_empty };
+}
+
+fn builtInList(self: *Self, list: LinkedListWrapper) !Expression {
+    var iter = list.iterator();
+    iter.advance(1);
+    const wrapper = LinkedListWrapper{ .value = iter.curr };
+    return .{ .list = try wrapper.dupe(self.allocator) };
 }
 
 fn builtInAdd(self: *Self, list: LinkedListWrapper) !Expression {
@@ -546,6 +554,8 @@ fn call(self: *Self, list: LinkedListWrapper) !Expression {
                 return self.builtInCons(list);
             } else if (std.mem.eql(u8, ident, "empty?")) {
                 return self.builtInEmpty(list);
+            } else if (std.mem.eql(u8, ident, "list")) {
+                return self.builtInList(list);
             } else if (std.mem.eql(u8, ident, "+")) {
                 return self.builtInAdd(list);
             } else if (std.mem.eql(u8, ident, "-")) {
