@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Parser = @import("Parser.zig");
 const Expression = Parser.Expression;
+const Pair = Parser.Pair;
 const LinkedList = @import("LinkedList.zig");
 const LinkedListWrapper = LinkedList.Wrapper;
 const PairIter = LinkedList.PairIter;
@@ -163,7 +164,7 @@ fn builtInCar(self: *Self, list: LinkedListWrapper) !Expression {
         return error.WrongNumberOfArguments;
     }
     var argument = try self.evaluate(iter.next().?.payload);
-    defer argument.deinit(self.allocator);
+    errdefer argument.deinit(self.allocator);
     const car: Expression = switch (argument) {
         .list => |*inner| blk: {
             const value = inner.removeFirst(self.allocator) orelse return error.ExpectedCons;
@@ -175,8 +176,16 @@ fn builtInCar(self: *Self, list: LinkedListWrapper) !Expression {
             }
             break :blk .{ .char = string[0] };
         },
+        .pair => |pair| {
+            const result = pair.left.*;
+            pair.right.deinit(self.allocator);
+            self.allocator.destroy(pair.left);
+            self.allocator.destroy(pair.right);
+            return result;
+        },
         else => return error.ExpectedCons,
     };
+    argument.deinit(self.allocator);
     return car;
 }
 
@@ -205,6 +214,13 @@ fn builtInCdr(self: *Self, list: LinkedListWrapper) !Expression {
             self.allocator.free(string.*);
             string.* = new;
         },
+        .pair => |pair| {
+            const result = pair.right.*;
+            pair.left.deinit(self.allocator);
+            self.allocator.destroy(pair.left);
+            self.allocator.destroy(pair.right);
+            return result;
+        },
         else => return error.ExpectedCons,
     }
     return argument;
@@ -221,14 +237,16 @@ fn builtInCons(self: *Self, list: LinkedListWrapper) !Expression {
     var right = try self.evaluate(iter.next().?.payload);
     errdefer right.deinit(self.allocator);
     switch (right) {
-        // TODO: Maybe support arbitrary pairs?
         .list => |*inner| {
             try inner.prepend(self.allocator, left);
         },
         .string => |*string| {
             const left_char = switch (left) {
                 .char => |char| char,
-                else => return error.ExpectedChar,
+                else => {
+                    const pair = try Pair.init(self.allocator, left, right);
+                    return .{ .pair = pair };
+                },
             };
             const new = try self.allocator.alloc(u8, string.len + 1);
             new[0] = left_char;
@@ -236,7 +254,10 @@ fn builtInCons(self: *Self, list: LinkedListWrapper) !Expression {
             self.allocator.free(string.*);
             string.* = new;
         },
-        else => return error.ExpectedList,
+        else => {
+            const pair = try Pair.init(self.allocator, left, right);
+            return .{ .pair = pair };
+        },
     }
     return right;
 }
@@ -507,7 +528,7 @@ fn call(self: *Self, list: LinkedListWrapper) !Expression {
     };
     defer callee.deinit(self.allocator);
     switch (callee) {
-        .bool, .char, .int, .float, .string => return error.ExpectedCallable,
+        .bool, .char, .int, .float, .string, .pair => return error.ExpectedCallable,
         .ident => |ident| {
             if (std.mem.eql(u8, ident, "lambda")) {
                 return self.builtInLambda(list);
@@ -611,7 +632,7 @@ fn call(self: *Self, list: LinkedListWrapper) !Expression {
 
 pub fn evaluate(self: *Self, expression: Expression) anyerror!Expression {
     const evaluated = switch (expression) {
-        .bool, .char, .float, .int, .string => try expression.dupe(self.allocator),
+        .bool, .char, .float, .int, .string, .pair => try expression.dupe(self.allocator),
         .ident => |ident| blk: {
             const maybe_value = self.environment.symbols.get(ident);
             if (maybe_value) |value| {

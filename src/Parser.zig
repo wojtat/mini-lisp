@@ -4,6 +4,48 @@ const Tokenizer = @import("Tokenizer.zig");
 const LinkedList = @import("LinkedList.zig");
 const LinkedListWrapper = LinkedList.Wrapper;
 
+pub const Pair = struct {
+    left: *Expression,
+    right: *Expression,
+
+    pub fn init(allocator: Allocator, left: Expression, right: Expression) Allocator.Error!Pair {
+        // If the right is a list, construct a list instead
+        std.debug.assert(switch (right) {
+            .list => false,
+            else => true,
+        });
+        const leftp = try allocator.create(Expression);
+        errdefer allocator.destroy(leftp);
+        const rightp = try allocator.create(Expression);
+        leftp.* = left;
+        rightp.* = right;
+        return .{ .left = leftp, .right = rightp };
+    }
+
+    fn deinit(self: Pair, allocator: Allocator) void {
+        self.left.deinit(allocator);
+        allocator.destroy(self.left);
+        self.right.deinit(allocator);
+        allocator.destroy(self.right);
+    }
+
+    fn dupe(self: Pair, allocator: Allocator) Allocator.Error!Pair {
+        const left = try self.left.dupe(allocator);
+        errdefer left.deinit(allocator);
+        const right = try self.right.dupe(allocator);
+        errdefer right.deinit(allocator);
+        return Pair.init(allocator, left, right);
+    }
+
+    pub fn write(self: Pair, writer: anytype) !void {
+        try writer.writeByte('(');
+        try self.left.write(writer);
+        _ = try writer.write(" . ");
+        try self.right.write(writer);
+        try writer.writeByte(')');
+    }
+};
+
 pub const Expression = union(enum) {
     bool: bool,
     int: i64,
@@ -12,12 +54,14 @@ pub const Expression = union(enum) {
     string: []const u8,
     ident: []const u8,
     list: LinkedListWrapper,
+    pair: Pair,
 
     pub fn deinit(self: Expression, allocator: Allocator) void {
         switch (self) {
             .string => |string| allocator.free(string),
             .ident => |ident| allocator.free(ident),
             .list => |list| list.deinit(allocator),
+            .pair => |pair| pair.deinit(allocator),
             else => {},
         }
     }
@@ -28,6 +72,7 @@ pub const Expression = union(enum) {
             .string => |string| .{ .string = try allocator.dupe(u8, string) },
             .ident => |ident| .{ .ident = try allocator.dupe(u8, ident) },
             .list => |list| .{ .list = try list.dupe(allocator) },
+            .pair => |pair| .{ .pair = try pair.dupe(allocator) },
         };
     }
 
@@ -40,6 +85,7 @@ pub const Expression = union(enum) {
             .string => |string| std.fmt.format(writer, "\"{s}\"", .{string}),
             .ident => |ident| std.fmt.format(writer, "{s}", .{ident}),
             .list => |list| list.write(writer),
+            .pair => |pair| pair.write(writer),
         };
     }
 
@@ -68,6 +114,10 @@ pub const Expression = union(enum) {
             },
             .list => |*list| {
                 try list.bindSymbol(allocator, param_to_arg);
+            },
+            .pair => |*pair| {
+                try pair.left.bindSymbol(allocator, param_to_arg);
+                try pair.right.bindSymbol(allocator, param_to_arg);
             },
         }
     }
